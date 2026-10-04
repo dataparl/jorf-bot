@@ -104,10 +104,12 @@ export async function joursBalayes() {
 }
 
 // Balayage d'une plage de jours, en reprenant là où il s'était arrêté.
+// Si tout échoue d'emblée (réseau coupé, table absente…), on s'arrête vite
+// avec un message clair au lieu d'attraper des centaines d'erreurs.
 export async function balayer(debut, fin, verbeux = true) {
   const vus = await joursBalayes().catch(() => new Set());
   const jours = [];
-  let d = debut, restants = 0;
+  let d = debut, restants = 0, echecsConsecutifs = 0, enErreur = 0;
   while (d <= fin) {
     if (vus.has(d)) { d = demain(d); continue; }
     const jour = await importerJour(d).catch((e) => ({ date: d, nb: 0, ministres: 0, cabinets: 0, erreurs: [e.message] }));
@@ -116,11 +118,19 @@ export async function balayer(debut, fin, verbeux = true) {
       const errs = jour.erreurs.length ? ` — ${jour.erreurs[0]}` : "";
       console.log(`${jour.date} : ${jour.nb} mesure(s) — ${jour.ministres} ministre(s), ${jour.cabinets} cabinet(s)${errs}`);
     }
-    vus.add(d);
+    // Un jour n'est « balayé » que si son relevé a pu être écrit ; sinon il
+    // reste à faire et sera repris au prochain passage.
+    const echec = jour.erreurs.length > 0;
+    enErreur += echec ? 1 : 0;
+    echecsConsecutifs = echec ? echecsConsecutifs + 1 : 0;
+    if (!echec) vus.add(d);
     d = demain(d);
     restants++;
+    if (echecsConsecutifs >= 8 && enErreur === restants) {
+      throw new Error(`Balayage interrompu : les ${restants} premiers jours échouent tous (${jour.erreurs[0] ?? "cause inconnue"}). Vérifier l'accès à la DILA et les tables Supabase (node bin/jorf-bot.js diagnostique).`);
+    }
   }
-  return { jours, restants };
+  return { jours, restants, enErreur };
 }
 
 // Statut : jours balayés, prochaine étape.
