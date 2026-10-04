@@ -50,3 +50,7 @@ export const maj = (table, valeurs, params) =>
 // Lecture avec la clé service_role (tables internes non publiques, ex. jorf_releves).
 export const lirePrive = (table, params) =>
   appel(`${table}?${params.toString()}`, { method: "GET" }, CLE_SERVICE);
+
+// Suppression service_role (sondes du diagnostique).
+export const supprimer = (table, params) =>
+  appel(`${table}?${params.toString()}`, { method: "DELETE" }, CLE_SERVICE);
