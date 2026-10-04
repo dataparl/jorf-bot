@@ -1,0 +1,43 @@
+name: jorf-history
+# Balayage JORF d'une plage de dates au choix (rattrapage d'historique) :
+# déclenchement manuel depuis l'onglet Actions, date de début obligatoire,
+# date de fin facultative (hier par défaut).
+on:
+  workflow_dispatch:
+    inputs:
+      date_debut:
+        description: "Date de début du balayage (YYYY-MM-DD)"
+        required: true
+        type: string
+      date_fin:
+        description: "Date de fin (YYYY-MM-DD) — hier par défaut"
+        required: false
+        type: string
+
+jobs:
+  jorf-history:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - name: Statut avant balayage
+        env:
+          DATA_SUPABASE_URL: ${{ secrets.DATA_SUPABASE_URL }}
+          DATA_SUPABASE_KEY: ${{ secrets.DATA_SUPABASE_KEY }}
+          DATA_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.DATA_SUPABASE_SERVICE_ROLE_KEY }}
+        run: node bin/jorf-bot.js statut
+      - name: "Balayage ${{ inputs.date_debut }} -> ${{ inputs.date_fin || 'hier' }}"
+        env:
+          DATA_SUPABASE_URL: ${{ secrets.DATA_SUPABASE_URL }}
+          DATA_SUPABASE_KEY: ${{ secrets.DATA_SUPABASE_KEY }}
+          DATA_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.DATA_SUPABASE_SERVICE_ROLE_KEY }}
+        run: node bin/jorf-bot.js balayer "${{ inputs.date_debut }}" ${{ inputs.date_fin && format('"{0}"', inputs.date_fin) || '' }}
+      - name: Statut après balayage
+        if: always()
+        env:
+          DATA_SUPABASE_URL: ${{ secrets.DATA_SUPABASE_URL }}
+          DATA_SUPABASE_KEY: ${{ secrets.DATA_SUPABASE_KEY }}
+          DATA_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.DATA_SUPABASE_SERVICE_ROLE_KEY }}
+        run: node bin/jorf-bot.js statut
