@@ -1,0 +1,25 @@
+name: jorf-quotidien
+on:
+  schedule:
+    - cron: "30 6 * * *"   # 06h30 UTC, avant le cron webapp de 07h15
+  workflow_dispatch: {}    # déclenchement manuel possible
+
+jobs:
+  jorf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - name: Relève du JORF (veille + avant-veille)
+        env:
+          DATA_SUPABASE_URL: ${{ secrets.DATA_SUPABASE_URL }}
+          DATA_SUPABASE_KEY: ${{ secrets.DATA_SUPABASE_KEY }}
+          DATA_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.DATA_SUPABASE_SERVICE_ROLE_KEY }}
+        run: node bin/jorf-bot.js veille
+      - name: Rattrapage éventuel (10 jours max, pour ne pas dépasser le runner)
+        env:
+          DATA_SUPABASE_URL: ${{ secrets.DATA_SUPABASE_URL }}
+          DATA_SUPABASE_KEY: ${{ secrets.DATA_SUPABASE_KEY }}
+          DATA_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.DATA_SUPABASE_SERVICE_ROLE_KEY }}
+        run: node bin/jorf-bot.js balayer $(date -u -d '10 days ago' +%F)

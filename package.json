@@ -1,0 +1,14 @@
+{
+  "name": "@dataparl/jorf-bot",
+  "version": "1.0.0",
+  "description": "Bot DataParl' : balayage du Journal officiel (JORF) — nominations et cessations de fonctions des ministres et des cabinets ministériels, alimentation de la base Supabase DATA.",
+  "type": "module",
+  "private": true,
+  "bin": { "jorf-bot": "bin/jorf-bot.js" },
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "jour": "node bin/jorf-bot.js jour",
+    "rattraper": "node bin/jorf-bot.js rattraper",
+    "statut": "node bin/jorf-bot.js statut"
+  }
+}
