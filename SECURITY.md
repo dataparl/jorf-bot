@@ -4,7 +4,7 @@
 
 Tu as trouvé une faille de sécurité sur ce dépôt ou sur un des services de
 DataParl' ? Merci de **ne pas ouvrir d'issue publique** et d'écrire plutôt à :
-**security@dataparl.fr** (PGP disponible sur demande).
+**https://www.dataparl.fr/contact** (PGP disponible sur demande).
 
 Nous nous engageons à :
 
