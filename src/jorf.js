@@ -166,13 +166,37 @@ export function analyserJORF(xml, dateDefaut) {
   });
 }
 
-// Télécharge le JORF d'un jour et rend ses mesures nominatives.
+const UA = "DataParl (https://www.dataparl.fr), jorf-bot";
+
+// Fenêtre disponible sur JORFSIMPLE (index du dossier) : la DILA ne conserve
+// qu'une fenêtre glissante de quelques mois de zips quotidiens. Savoir jusqu'où
+// on peut remonter évite de « balayer » des jours qui n'existent plus.
+export async function fenetreJorfsimple() {
+  const r = await fetch(`${BASE}/`, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(25_000) });
+  if (!r.ok) throw new Error(`index JORFSIMPLE : HTTP ${r.status}`);
+  const texte = await r.text();
+  const dates = [...texte.matchAll(/JORFSIMPLE_(\d{8})\.zip/gi)].map((m) => m[1]).sort();
+  if (!dates.length) throw new Error("index JORFSIMPLE illisible (aucun zip listé)");
+  return { premier: dates[0], dernier: dates[dates.length - 1], nb: dates.length };
+}
+
+// Télécharge le JORF d'un jour et rend ses mesures nominatives. La DILA coupe
+// parfois les connexions : trois essais avec pauses croissantes.
 export async function releverJour(date) {
-  const r = await fetch(lienJORF(date), {
-    headers: { "User-Agent": "DataParl (https://www.dataparl.fr), jorf-bot" },
-    signal: AbortSignal.timeout(25_000),
-  });
-  if (r.status === 404) return []; // pas de publication ce jour-là
+  let r = null;
+  let derniereErreur = null;
+  for (let essai = 0; essai < 3; essai += 1) {
+    try {
+      r = await fetch(lienJORF(date), { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(25_000) });
+      break;
+    } catch (e) {
+      derniereErreur = e;
+      r = null;
+      await new Promise((ok) => setTimeout(ok, 2000 * (essai + 1)));
+    }
+  }
+  if (!r) throw new Error(`JORF ${date} : inaccessible (${derniereErreur?.message ?? "réseau"})`);
+  if (r.status === 404) return []; // pas de publication ce jour-là (ou hors fenêtre)
   if (!r.ok) throw new Error(`JORF ${date} : HTTP ${r.status}`);
   const brut = Buffer.from(await r.arrayBuffer());
   if (brut.length > 80_000_000) throw new Error(`JORF ${date} : zip trop volumineux`);
