@@ -27,6 +27,32 @@ async function chercherMinistre(prenom, nom) {
   return rows[0]?.id ?? null;
 }
 
+// Chargement en une fois de tous les mandats ministériels (mode corpus) :
+// sert à rattacher un cabinet par portefeuille + date quand le décret ne
+// nomme pas le ministre (« directeur de cabinet du ministre de l'intérieur »).
+async function chargerMandats(ctx) {
+  const rows = await lire("ministres", new URLSearchParams({
+    select: "id,prenom,nom,portefeuille,debut,fin", limit: "2000",
+  }));
+  ctx.mandats = rows.map((m) => ({
+    id: m.id, debut: m.debut, fin: m.fin,
+    cleN: cleNom(m.prenom ?? "", m.nom ?? ""),
+    cleP: cleNom((m.portefeuille ?? "").replace(/^ministre\s*/i, "")),
+  }));
+}
+
+// Mandat en fonction à la date donnée pour un portefeuille (clé normalisée).
+// Retient le mandat le plus récent ; idem sur le nom si un nom est fourni.
+function mandaterParPortefeuille(ctx, portefeuille, date) {
+  const cle = cleNom((portefeuille ?? "").replace(/^ministre\s*/i, ""));
+  if (!cle || !ctx.mandats) return null;
+  const candidats = ctx.mandats.filter((m) =>
+    (m.cleP === cle || (cle.length >= 6 && m.cleP.includes(cle)))
+    && m.debut <= date && (!m.fin || m.fin >= date));
+  candidats.sort((a, b) => (b.debut ?? "").localeCompare(a.debut ?? ""));
+  return candidats[0]?.id ?? null;
+}
+
 const gouvernementDu = (extrait) =>
   /gouvernement\s+([A-ZÉÈ][a-zéè]+(?:\s+[IV]+)?)/.exec(extrait)?.[1] ?? "";
 
@@ -52,14 +78,22 @@ export async function importerMesuresBrut(date, mesures, ctx) {
         out.ministres++;
       } else {
         const ref = m.ministre ?? { prenom: "", nom: "" };
-        if (!ref.nom) { out.erreurs.push(`${m.prenom} ${m.nom} : ministre de rattachement introuvable`); continue; }
-        const cleRef = cleNom(ref.prenom, ref.nom);
-        let ministreId = ctx.ministres.get(cleRef) ?? null;
-        if (!ministreId) {
-          ministreId = await chercherMinistre(ref.prenom, ref.nom).catch(() => null);
-          if (ministreId) ctx.ministres.set(cleRef, ministreId);
+        if (!ctx.mandats) await chargerMandats(ctx).catch(() => { ctx.mandats = []; });
+        let ministreId = null;
+        if (ref.nom) {
+          const cleRef = cleNom(ref.prenom, ref.nom);
+          ministreId = ctx.ministres.get(cleRef) ?? null;
+          if (!ministreId) {
+            ministreId = await chercherMinistre(ref.prenom, ref.nom).catch(() => null);
+            if (ministreId) ctx.ministres.set(cleRef, ministreId);
+          }
         }
-        if (!ministreId) { out.erreurs.push(`${m.prenom} ${m.nom} : mandat de ${ref.prenom} ${ref.nom} introuvable`); continue; }
+        // Fallback portefeuille : « directeur de cabinet du ministre de
+        // l'intérieur » → mandat en fonction à cette date pour ce portefeuille.
+        if (!ministreId && m.portefeuille) {
+          ministreId = mandaterParPortefeuille(ctx, m.portefeuille, m.date);
+        }
+        if (!ministreId) { out.erreurs.push(`${m.prenom} ${m.nom} : rattachement introuvable${m.portefeuille ? ` (${m.portefeuille})` : ""}`); continue; }
         const cle = cleNom(m.prenom, m.nom);
         if (m.type === "cessation") {
           await maj("cabinets_ministeriels", { fin: m.date, synced_at: now },
