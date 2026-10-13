@@ -58,6 +58,6 @@ jobs:
           git fetch origin logs --depth=1 || true
           git switch -c logs
           cp corpus.log corpus-${{ github.run_id }}.log
-          git add corpus-${{ github.run_id }}.log
+          git add -f corpus-${{ github.run_id }}.log
           git commit -m "journal corpus (run ${{ github.run_id }})"
           git push origin logs --force
