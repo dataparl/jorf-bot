@@ -86,8 +86,9 @@ async function* xmlDuTar(chemin) {
     if (type === "K" || type === "x" || type === "g") continue; // longlink, pax : ignorés
     if (nomLong) { nom = nomLong; nomLong = null; }
     if (type !== "0") continue; // répertoires, liens… : ignorés
-    if (!/\.xml$/i.test(nom)) continue;
     if (!/(^|\/)jorf\//i.test(nom)) continue; // uniquement le fonds JORF
+    // Le dump Freemium nomme ses fichiers SANS extension .xml (ex. …/jo/article_9) :
+    // on n'exige pas d'extension, la validité XML est vérifiée à l'analyse.
     yield { nom, xml: contenu.toString("utf8") };
   }
 }
@@ -117,8 +118,10 @@ export async function importerCorpus(chemin, debut, fin, verbeux = true) {
   const mesures = [];
   if (/\.(tar\.gz|tgz)$/i.test(chemin)) {
     if (verbeux) console.log(`Lecture en streaming de ${chemin} (aucune extraction)…`);
-    let lus = 0;
-    for await (const { xml } of xmlDuTar(chemin)) {
+    let lus = 0, vus = 0;
+    for await (const { nom, xml } of xmlDuTar(chemin)) {
+      vus++;
+      if (verbeux && vus <= 3) console.log(`  entrée #${vus} : ${nom}`);
       lus += 1;
       if (FILTRE_TITRE.test(xml)) {
         for (const m of analyserJORF(xml)) if (m.date >= debut && m.date <= fin) mesures.push(m);
