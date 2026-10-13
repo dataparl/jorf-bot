@@ -107,7 +107,7 @@ async function main() {
         process.exit(1);
       }
       const fin = ISO.test(args[2] ?? "") ? args[2] : aujourdhui(1);
-      const r = await importerCorps(args[0], args[1], fin);
+      const r = await importerCorpus(args[0], args[1], fin);
       console.log(`${r.fichiers} fichier(s) parcouru(s) — ${r.jours} jour(s) importé(s), ${r.mesures} mesure(s) : ${r.ministres} ministre(s), ${r.cabinets} cabinet(s), ${r.erreurs} erreur(s).`);
       break;
     }
