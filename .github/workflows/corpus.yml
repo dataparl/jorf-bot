@@ -67,10 +67,10 @@ jobs:
             echo "== le même contient-il 'nomination' ? =="
             timeout 300 tar -xzOf "$A" "$P_TX" | grep -ci nomination || true
             echo "== premier ARTICLE contenant nomination/PERSONNE =="
-            timeout 1200 bash -c 'tar -xzOf "$A" --wildcards "jorf/global/article/*" 2>/dev/null | awk '"'"'/<?xml/ {if (buf ~ /nomination|PERSONNE/) {print buf; exit} buf=$0; next} {buf=buf "\n" $0}'"''' | head -c 5000
+            timeout 1200 tar -xzOf "$A" --wildcards 'jorf/global/article/*' 2>/dev/null | awk '/<\?xml/ {if (buf ~ /nomination|PERSONNE/) {print buf; exit} buf=$0; next} {buf=buf RS $0}' | head -c 5000
             echo ""
             echo "== premier TEXTELR contenant nomination/PERSONNE =="
-            timeout 1200 bash -c 'tar -xzOf "$A" --wildcards "jorf/global/texte/struct/*" 2>/dev/null | awk '"'"'/<?xml/ {if (buf ~ /nomination|PERSONNE/) {print buf; exit} buf=$0; next} {buf=buf "\n" $0}'"''' | head -c 5000
+            timeout 1200 tar -xzOf "$A" --wildcards 'jorf/global/texte/struct/*' 2>/dev/null | awk '/<\?xml/ {if (buf ~ /nomination|PERSONNE/) {print buf; exit} buf=$0; next} {buf=buf RS $0}' | head -c 5000
           } 2>&1 | tee -a corpus.log
       - name: "Corpus ${{ inputs.debut }} -> ${{ inputs.fin }}"
         env:
