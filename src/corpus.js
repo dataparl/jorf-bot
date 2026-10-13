@@ -118,7 +118,7 @@ export async function importerCorpus(chemin, debut, fin, verbeux = true) {
   if (/\.(tar\.gz|tgz)$/i.test(chemin)) {
     if (verbeux) console.log(`Lecture en streaming de ${chemin} (aucune extraction)…`);
     let lus = 0;
-    for (const { xml } of xmlDuTar(chemin)) {
+    for await (const { xml } of xmlDuTar(chemin)) {
       lus += 1;
       if (FILTRE_TITRE.test(xml)) {
         for (const m of analyserJORF(xml)) if (m.date >= debut && m.date <= fin) mesures.push(m);
