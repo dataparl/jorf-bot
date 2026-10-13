@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-// jorf-bot — CLI : statut | diagnostique | jour <date> | veille | rattraper | balayer <debut> [fin] | corpus <dossier> <debut> [fin]
+// jorf-bot — CLI : statut | diagnostique | jour <date> | veille | rattraper | balayer <debut> [fin] | corpus <archive.tar.gz | dossier> <debut> [fin]
 // Exemples :
 //   node bin/jorf-bot.js statut
 //   node bin/jorf-bot.js jour 2026-10-03
 //   node bin/jorf-bot.js veille              (hier + avant-hier, comme le cron)
 //   node bin/jorf-bot.js rattraper           (2017-01-01 → hier)
 //   node bin/jorf-bot.js balayer 2024-01-01 2024-06-30
-//   node bin/jorf-bot.js corpus ~/freemium/jorf 2012-01-01 2025-07-13
+//   node bin/jorf-bot.js corpus Freemium_jorf_global_20250713-140000.tar.gz 2012-01-01 2025-07-13
 
 import { balayer, importerJour, statut } from "../src/import.js";
 import { importerCorpus } from "../src/corpus.js";
@@ -102,8 +102,8 @@ async function main() {
     }
     case "corpus": {
       if (!args[0] || !ISO.test(args[1] ?? "")) {
-        console.error("Usage : jorf-bot corpus <dossier-xml-jorf> YYYY-MM-DD [YYYY-MM-DD]");
-        console.error("Import du dump Freemium global DILA (fonds JORF complet) : dossier extrait, borne de début, borne de fin (défaut : hier).");
+        console.error("Usage : jorf-bot corpus <archive.tar.gz | dossier-xml-jorf> YYYY-MM-DD [YYYY-MM-DD]");
+        console.error("Import du dump Freemium global DILA (fonds JORF complet) : archive .tar.gz lue en streaming (sans extraction) ou dossier extrait, borne de début, borne de fin (défaut : hier).");
         process.exit(1);
       }
       const fin = ISO.test(args[2] ?? "") ? args[2] : aujourdhui(1);
@@ -112,7 +112,7 @@ async function main() {
       break;
     }
     default:
-      console.error("Commandes : statut | diagnostique | jour <date> | veille | rattraper | balayer <debut> [fin] | corpus <dossier> <debut> [fin]");
+      console.error("Commandes : statut | diagnostique | jour <date> | veille | rattraper | balayer <debut> [fin] | corpus <archive.tar.gz | dossier> <debut> [fin]");
       process.exit(1);
   }
 }
