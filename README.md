@@ -88,7 +88,7 @@ Les zips quotidiens JORFSIMPLE ne couvrent qu'une fenêtre glissante (~10 mois).
 Pour l'historique, la DILA met à disposition un dump global du fonds JORF :
 `Freemium_jorf_global_<AAAAMMJJ>-140000.tar.gz` (~1,6 Go) dans
 https://echanges.dila.gouv.fr/OPENDATA/JORF/ — le fonds complet en XML,
-ructure « SARDE » : dossiers par base (`jorf/`, `legi/`, …), fichiers XML nommés
+structure « SARDE » : dossiers par base (`jorf/`, `legi/`, …), fichiers XML nommés
 par identifiant de texte. Téléchargeable uniquement depuis une IP résidentielle.
 
 ```bash
