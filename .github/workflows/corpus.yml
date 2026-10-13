@@ -43,14 +43,24 @@ jobs:
             gh release download --repo "${{ github.repository }}" --pattern "Freemium_jorf_global_*.tar*"
           fi
           ls -lh Freemium_jorf_global_*.tar*
-      - name: Diagnostic archive (vérité terrain)
+      - name: Diagnostic archive (vérité terrain, publié dans corpus.log)
         run: |
           A=$(ls Freemium_jorf_global_*.tar* | head -1)
-          echo "== fichier =="; ls -lh "$A"; file "$A" || true
-          echo "== 512 premiers octets (hex) =="; head -c 512 "$A" | od -A x -t x1z | head -8
-          echo "== gunzip test =="; head -c 4 "$A" | od -A n -t x1
-          echo "== entrées tar (20 premières) =="; tar -tf "$A" 2>&1 | head -20 || true
-          echo "== nombre total d'entrées (peut être long) =="; timeout 600 tar -tf "$A" 2>/dev/null | wc -l || true
+          {
+            echo "== fichier =="; ls -lh "$A"
+            echo "== répartition des entrées par sous-dossier (listing complet) =="
+            timeout 900 tar -tzf "$A" | awk -F/ 'NF>2{print $2"/"$3}' | sort | uniq -c | sort -rn | head -15
+            P_CONT=$(timeout 900 tar -tzf "$A" | grep -m1 "CONT.*\\.xml$")
+            echo "== échantillon CONT : $P_CONT =="
+            timeout 300 tar -xzOf "$A" "$P_CONT" | head -c 2500
+            echo ""
+            P_EL=$(timeout 900 tar -tzf "$A" | grep -m1 "/eli/")
+            echo "== échantillon eli : $P_EL =="
+            timeout 300 tar -xzOf "$A" "$P_EL" | head -c 2500
+            echo ""
+            echo "== premier chemin contenant 'eli' listing 5 =="
+            timeout 900 tar -tzf "$A" | grep -m5 "/eli/"
+          } 2>&1 | tee -a corpus.log
       - name: "Corpus ${{ inputs.debut }} -> ${{ inputs.fin }}"
         env:
           DATA_SUPABASE_URL: ${{ secrets.DATA_SUPABASE_URL }}
