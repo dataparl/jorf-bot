@@ -174,13 +174,20 @@ export async function importerCorpus(chemin, debut, fin, verbeux = true) {
   }
   const ctx = { ministres: new Map() }; // cleNom(ministre) → id du mandat courant
   let cabinets = 0, erreurs = 0;
+  let joursEnErreur = 0;
   for (const d of [...parJour.keys()].sort()) {
     const duJour = parJour.get(d)
       .sort((a, b) => (a.role === "ministre" ? -1 : 0) - (b.role === "ministre" ? -1 : 0));
-    const out = await importerMesuresBrut(d, duJour, ctx);
+    // Un jour qui échoue (SQL, réseau…) n'interrompt pas le corpus : on
+    // compte l'erreur et on passe au suivant — un nouveau run reprendra.
+    const out = await importerMesuresBrut(d, duJour, ctx).catch((e) => ({
+      date: d, nb: duJour.length, ministres: 0, cabinets: 0, erreurs: [e.message],
+    }));
     cabinets += out.cabinets;
     erreurs += out.erreurs.length;
+    if (out.erreurs.length && out.cabinets === 0) joursEnErreur++;
     if (verbeux) console.log(`${d} : ${out.nb} mesure(s) — ${out.cabinets} cabinet(s)${out.erreurs.length ? ` — ${out.erreurs[0]}` : ""}`);
   }
+  if (joursEnErreur) console.log(`Attention : ${joursEnErreur} jour(s) en échec d'écriture — relancer le corpus pour les reprendre.`);
   return { jours: parJour.size, mesures: mesures.length, cabinets, erreurs };
 }
