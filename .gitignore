@@ -1,3 +1,6 @@
 node_modules/
 .env
 *.log
+# journaux publiés sur la branche logs par les workflows
+!jorf-history.log
+!corpus*.log
