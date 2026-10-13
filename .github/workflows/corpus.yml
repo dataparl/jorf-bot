@@ -60,6 +60,12 @@ jobs:
             echo ""
             echo "== premier chemin contenant 'eli' listing 5 =="
             timeout 900 tar -tzf "$A" | grep -m5 "/eli/"
+            P_TX=$(timeout 900 tar -tzf "$A" | grep -m1 "/global/texte/.*\\.xml$")
+            echo "== échantillon texte : $P_TX =="
+            timeout 300 tar -xzOf "$A" "$P_TX" | head -c 2500
+            echo ""
+            echo "== le même contient-il 'nomination' ? =="
+            timeout 300 tar -xzOf "$A" "$P_TX" | grep -ci nomination || true
           } 2>&1 | tee -a corpus.log
       - name: "Corpus ${{ inputs.debut }} -> ${{ inputs.fin }}"
         env:
@@ -67,7 +73,7 @@ jobs:
           DATA_SUPABASE_KEY: ${{ secrets.DATA_SUPABASE_KEY }}
           DATA_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.DATA_SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          node bin/jorf-bot.js corpus Freemium_jorf_global_*.tar* "${{ inputs.debut }}" "${{ inputs.fin }}" 2>&1 | tee corpus.log
+          node bin/jorf-bot.js corpus Freemium_jorf_global_*.tar* "${{ inputs.debut }}" "${{ inputs.fin }}" 2>&1 | tee -a corpus.log
       - name: Publier le journal sur la branche logs
         if: always()
         run: |
