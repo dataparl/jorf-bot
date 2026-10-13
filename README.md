@@ -82,7 +82,38 @@ de la box, ou par une automatisation Home Assistant appelant le `docker exec`.
 Limite connue : JORFSIMPLE ne conserve qu'environ dix mois de dumps ; pour les
 jours antérieurs (début du gouvernement courant), passer par Légifrance.
 
+## Historique complet en un coup : dump Freemium global (2012 → …)
+
+Les zips quotidiens JORFSIMPLE ne couvrent qu'une fenêtre glissante (~10 mois).
+Pour l'historique, la DILA met à disposition un dump global du fonds JORF :
+`Freemium_jorf_global_<AAAAMMJJ>-140000.tar.gz` (~1,6 Go) dans
+https://echanges.dila.gouv.fr/OPENDATA/JORF/ — le fonds complet en XML,
+ructure « SARDE » : dossiers par base (`jorf/`, `legi/`, …), fichiers XML nommés
+par identifiant de texte. Téléchargeable uniquement depuis une IP résidentielle.
+
+```bash
+# 1. Télécharger (Mac, IP maison) puis extraire (≈ 10 Go) :
+curl -O https://echanges.dila.gouv.fr/OPENDATA/JORF/Freemium_jorf_global_XXXX-140000.tar.gz
+tar -xzf Freemium_jorf_global_XXXX-140000.tar.gz
+find . -type d -iname jorf   # repérer le dossier du fonds JORF
+
+# 2. Import 2012 → date du dump (idempotent, upsert) :
+node bin/jorf-bot.js corpus <dossier-jorf> 2012-01-01 <date-du-dump>
+
+# 3. Compléter jusqu'à aujourd'hui avec la fenêtre JORFSIMPLE :
+node bin/jorf-bot.js balayer <lendemain-du-dump> $(date -d hier +%F)
+```
+
+La commande `corpus` parcourt les XML (rejet rapide sur le titre, puis mêmes
+filtres que le balayage quotidien), regroupe les mesures par date et les importe
+avec les rapprochements habituels (parlementaires, collaborateurs, ministre de
+rattachement). Si un trou subsiste entre la date du dump et le début de la
+fenêtre JORFSIMPLE (rafaîchissement du Freemium irrégulier), le combler via
+Légifrance. Ensuite, la mise à jour quotidienne = `veille` (Mac ou conteneur
+Home Assistant).
+
 ## Sources
+
 
 Dumps JORFSIMPLE de la DILA (Premier ministre / data.gouv.fr, réutilisation
 libre) : https://echanges.dila.gouv.fr/OPENDATA/JORFSIMPLE
