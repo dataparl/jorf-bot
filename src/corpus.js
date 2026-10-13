@@ -181,11 +181,11 @@ export async function importerCorpus(chemin, debut, fin, verbeux = true) {
     // Un jour qui échoue (SQL, réseau…) n'interrompt pas le corpus : on
     // compte l'erreur et on passe au suivant — un nouveau run reprendra.
     const out = await importerMesuresBrut(d, duJour, ctx).catch((e) => ({
-      date: d, nb: duJour.length, ministres: 0, cabinets: 0, erreurs: [e.message],
+      date: d, nb: duJour.length, ministres: 0, cabinets: 0, erreurs: [e.message], echecEcriture: true,
     }));
     cabinets += out.cabinets;
     erreurs += out.erreurs.length;
-    if (out.erreurs.length && out.cabinets === 0) joursEnErreur++;
+    if (out.echecEcriture) joursEnErreur++; // vrais échecs d'écriture, pas les rattachements manqués
     if (verbeux) console.log(`${d} : ${out.nb} mesure(s) — ${out.cabinets} cabinet(s)${out.erreurs.length ? ` — ${out.erreurs[0]}` : ""}`);
   }
   if (joursEnErreur) console.log(`Attention : ${joursEnErreur} jour(s) en échec d'écriture — relancer le corpus pour les reprendre.`);
