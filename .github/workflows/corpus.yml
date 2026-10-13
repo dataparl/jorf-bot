@@ -81,7 +81,17 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin logs --depth=1 || true
           git switch -c logs
-          cp corpus.log corpus-${{ github.run_id }}.log
+          {
+            echo "== corpus run ${{ github.run_id }} ($(date -u +%FT%TZ)) =="
+            echo "== taille totale du journal : $(wc -l < corpus.log) lignes =="
+            echo "== résumé (lignes par jour) =="
+            grep -E '^20[0-9]{2}-[0-9]{2}-[0-9]{2} ' corpus.log | head -5000 || true
+            echo "== premier 200 Ko =="
+            head -c 200000 corpus.log || true
+            echo ""
+            echo "== dernier 300 Ko =="
+            tail -c 300000 corpus.log || true
+          } > corpus-${{ github.run_id }}.log
           git add -f corpus-${{ github.run_id }}.log
           git commit -m "journal corpus (run ${{ github.run_id }})"
           git push origin logs --force
