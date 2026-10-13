@@ -43,34 +43,26 @@ jobs:
             gh release download --repo "${{ github.repository }}" --pattern "Freemium_jorf_global_*.tar*"
           fi
           ls -lh Freemium_jorf_global_*.tar*
-      - name: Diagnostic archive (vérité terrain, publié dans corpus.log)
+      - name: Échantillons (extraits vers la branche logs pour analyse hors CI)
         run: |
           A=$(ls Freemium_jorf_global_*.tar* | head -1)
+          extraire () {
+            # $1 = wildcard tar, $2 = fichier sortie, $3 = motif, $4 = nb max
+            timeout 1800 tar -xzOf "$A" --wildcards "$1" 2>/dev/null | awk -v motif="$3" -v max="$4" '
+              /<\?xml/ {if (buf ~ motif) {print buf; c++; if (c>=max) exit} buf=$0; next}
+              {buf=buf RS $0}
+              END {if (buf ~ motif) print buf}
+            ' > "$2" || true
+            echo "$2 : $(wc -c < "$2") octets"
+          }
+          extraire 'jorf/global/article/*' echantillon-article.xml 'nomination|PERSONNE' 3
+          extraire 'jorf/global/texte/struct/*' echantillon-texte.xml 'nomination|PERSONNE' 3
+          extraire 'jorf/global/section_ta/*' echantillon-section.xml 'nomination|PERSONNE' 2
           {
-            echo "== fichier =="; ls -lh "$A"
-            echo "== répartition des entrées par sous-dossier (listing complet) =="
-            timeout 900 tar -tzf "$A" | awk -F/ 'NF>2{print $2"/"$3}' | sort | uniq -c | sort -rn | head -15
-            P_CONT=$(timeout 900 tar -tzf "$A" | grep -m1 "CONT.*\\.xml$")
-            echo "== échantillon CONT : $P_CONT =="
-            timeout 300 tar -xzOf "$A" "$P_CONT" | head -c 2500
-            echo ""
-            P_EL=$(timeout 900 tar -tzf "$A" | grep -m1 "/eli/")
-            echo "== échantillon eli : $P_EL =="
-            timeout 300 tar -xzOf "$A" "$P_EL" | head -c 2500
-            echo ""
-            echo "== premier chemin contenant 'eli' listing 5 =="
-            timeout 900 tar -tzf "$A" | grep -m5 "/eli/"
-            P_TX=$(timeout 900 tar -tzf "$A" | grep -m1 "/global/texte/.*\\.xml$")
-            echo "== échantillon texte : $P_TX =="
-            timeout 300 tar -xzOf "$A" "$P_TX" | head -c 2500
-            echo ""
-            echo "== le même contient-il 'nomination' ? =="
-            timeout 300 tar -xzOf "$A" "$P_TX" | grep -ci nomination || true
-            echo "== premier ARTICLE contenant nomination/PERSONNE =="
-            timeout 1200 tar -xzOf "$A" --wildcards 'jorf/global/article/*' 2>/dev/null | awk '/<\?xml/ {if (buf ~ /nomination|PERSONNE/) {print buf; exit} buf=$0; next} {buf=buf RS $0}' | head -c 5000
-            echo ""
-            echo "== premier TEXTELR contenant nomination/PERSONNE =="
-            timeout 1200 tar -xzOf "$A" --wildcards 'jorf/global/texte/struct/*' 2>/dev/null | awk '/<\?xml/ {if (buf ~ /nomination|PERSONNE/) {print buf; exit} buf=$0; next} {buf=buf RS $0}' | head -c 5000
+            echo "== échantillons extraits =="
+            for f in echantillon-*.xml; do echo "-- $f : $(wc -c < $f) octets"; done
+            echo "== aperçu article =="
+            head -c 4000 echantillon-article.xml || true
           } 2>&1 | tee -a corpus.log
       - name: "Corpus ${{ inputs.debut }} -> ${{ inputs.fin }}"
         env:
@@ -97,6 +89,6 @@ jobs:
             echo "== dernier 300 Ko =="
             tail -c 300000 corpus.log || true
           } > corpus-${{ github.run_id }}.log
-          git add -f corpus-${{ github.run_id }}.log
+          git add -f corpus-${{ github.run_id }}.log echantillon-*.xml || true
           git commit -m "journal corpus (run ${{ github.run_id }})"
           git push origin logs --force
