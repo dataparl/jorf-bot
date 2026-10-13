@@ -64,6 +64,8 @@ class Flux {
 async function* xmlDuTar(chemin) {
   const flux = new Flux(chemin);
   let nomLong = null; // GNU longname : nom du fichier suivant
+  let nomPax = null;  // pax : chemin réel de l'entrée suivante
+  let vusBrut = 0;
   while (true) {
     const head = await flux.lit(512);
     if (!head || head.every((b) => b === 0)) return; // fin (blocs zéros)
@@ -85,9 +87,19 @@ async function* xmlDuTar(chemin) {
     if (pad > 0) await flux.lit(pad); // alignement, ignoré
     if (contenu === null || contenu.length < taille) return; // archive tronquée
     if (type === "L") { nomLong = contenu.toString("utf8").replace(/\0[\s\S]*$/, ""); continue; }
-    if (type === "K" || type === "x" || type === "g") continue; // longlink, pax : ignorés
-    if (nomLong) { nom = nomLong; nomLong = null; }
-    if (type !== "0") continue; // répertoires, liens… : ignorés
+    if (type === "x" || type === "X") {
+      // En-tête pax étendu : le vrai chemin est dans un enregistrement « path=… »
+      const pax = contenu.toString("utf8");
+      const m = /(?:^|\n)\d+ path=([^\n]*)/.exec(pax);
+      nomPax = m ? m[1] : null;
+      continue;
+    }
+    if (type === "K" || type === "g") continue; // longlink, pax global : ignorés
+    if (nomPax) { nom = nomPax; nomPax = null; }
+    else if (nomLong) { nomLong = null; }
+    if (type !== "0" && type !== "\0") continue; // répertoires, liens… : ignorés
+    if (vusBrut < 3) console.log(`  entrée tar : ${nom}`);
+    vusBrut++;
     if (!/(^|\/)jorf\//i.test(nom)) continue; // uniquement le fonds JORF
     // Le dump Freemium nomme ses fichiers SANS extension .xml (ex. …/jo/article_9) :
     // on n'exige pas d'extension, la validité XML est vérifiée à l'analyse.
