@@ -69,6 +69,7 @@ export async function importerMesuresBrut(date, mesures, ctx) {
   const now = new Date().toISOString();
   const out = { date, nb: mesures.length, ministres: 0, cabinets: 0, erreurs: [] };
   const aEcrire = [];
+  const dejaEcrits = new Map(); // id cabinet → ligne déjà au lot (dédoublonnage)
   for (const m of mesures) {
     try {
       if (m.role === "ministre") {
@@ -99,20 +100,30 @@ export async function importerMesuresBrut(date, mesures, ctx) {
           await maj("cabinets_ministeriels", { fin: m.date, synced_at: now },
             new URLSearchParams({ collab_cle: `eq.${cle}`, fin: "is.null" }));
         } else {
+          const id = idCabinet(ministreId, m.prenom, m.nom);
+          const existant = aEcrire.find((x) => x.id === id) ?? dejaEcrits.get(id);
+          if (!existant) {
           aEcrire.push({
-            id: idCabinet(ministreId, m.prenom, m.nom), ministre_id: ministreId,
+            id, ministre_id: ministreId,
             personne_id: null, collab_id: null, collab_cle: cle,
             collab_nom: m.nom.toUpperCase(), collab_prenom: m.prenom,
             fonction: m.fonction || "membre de cabinet",
             source: `JORF ${m.id_texte}`, confiance: "officiel", date_source: m.date,
             debut: m.date, fin: null,
           });
+          } else {
+            // même cabinet déjà écrit dans ce lot ou ce jour : on complète juste fin si cessation ultérieure
+            dejaEcrits.set(id, existant);
+          }
         }
         out.cabinets++;
       }
     } catch (e) { out.erreurs.push(`${m.prenom} ${m.nom} : ${e.message}`); }
   }
-  if (aEcrire.length) await ecrire("cabinets_ministeriels", aEcrire);
+  if (aEcrire.length) {
+    await ecrire("cabinets_ministeriels", aEcrire);
+    for (const l of aEcrire) dejaEcrits.set(l.id, l);
+  }
   await ecrire("jorf_releves", [{
     date_jorf: date, nb_mesures: out.nb, nb_ministres: out.ministres, nb_cabinets: out.cabinets,
     erreurs: out.erreurs.slice(0, 5).join(" | ").slice(0, 500), synced_at: now,
