@@ -1,0 +1,65 @@
+name: corpus
+# Import one-shot du dump Freemium global (cabinets ministériels 2012 -> date du dump).
+# L'archive .tar.gz doit être publiée dans une Release du dépôt (asset nommé
+# Freemium_jorf_global_*.tar.gz) — Actions la télécharge et lit en streaming.
+# Pas d'accès DILA ici : l'IP du runner ne pose donc aucun problème.
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Tag de la Release contenant l'archive (défaut : la plus récente)"
+        required: false
+        type: string
+      debut:
+        description: "Date de début (YYYY-MM-DD)"
+        required: true
+        default: "2012-01-01"
+        type: string
+      fin:
+        description: "Date de fin (YYYY-MM-DD) — défaut : 2025-07-13 (date du dump)"
+        required: false
+        default: "2025-07-13"
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  corpus:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - name: Télécharger l'archive depuis la Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ARGS=""
+          if [ -n "${{ inputs.release }}" ]; then ARGS="--pattern 'Freemium_jorf_global_*.tar.gz' --repo ${{ github.repository }}"; fi
+          # gh release download [<tag>] : sans tag = release la plus récente
+          if [ -n "${{ inputs.release }}" ]; then
+            gh release download "${{ inputs.release }}" --repo "${{ github.repository }}" --pattern "Freemium_jorf_global_*.tar.gz"
+          else
+            gh release download --repo "${{ github.repository }}" --pattern "Freemium_jorf_global_*.tar.gz"
+          fi
+          ls -lh Freemium_jorf_global_*.tar.gz
+      - name: "Corpus ${{ inputs.debut }} -> ${{ inputs.fin }}"
+        env:
+          DATA_SUPABASE_URL: ${{ secrets.DATA_SUPABASE_URL }}
+          DATA_SUPABASE_KEY: ${{ secrets.DATA_SUPABASE_KEY }}
+          DATA_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.DATA_SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          node bin/jorf-bot.js corpus Freemium_jorf_global_*.tar.gz "${{ inputs.debut }}" "${{ inputs.fin }}" 2>&1 | tee corpus.log
+      - name: Publier le journal sur la branche logs
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin logs --depth=1 || true
+          git switch -c logs
+          cp corpus.log corpus-${{ github.run_id }}.log
+          git add corpus-${{ github.run_id }}.log
+          git commit -m "journal corpus (run ${{ github.run_id }})"
+          git push origin logs --force
