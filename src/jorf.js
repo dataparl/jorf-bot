@@ -252,7 +252,7 @@ export function analyserArticleFreemium(xml) {
       id_texte: id, date, nature, titre, type, role,
       civilite: p.civilite, prenom: p.prenom, nom: p.nom,
       fonction: (rCabinet?.[0] ?? rMinistre?.[0] ?? "").trim(),
-      portefeuille: role === "ministre" ? (rMinistre?.[0] ?? "").replace(/^ministre\s*/i, "").trim() : "",
+      portefeuille: (rMinistre?.[0] ?? "").replace(/^ministre\s*/i, "").trim(),
       ministre,
       extrait: autour.replace(/\s+/g, " ").slice(0, 400),
     });
@@ -268,7 +268,7 @@ export function analyserArticleFreemium(xml) {
         civilite: m[0].startsWith("Mme") ? "Mme" : "M.",
         prenom: m[1], nom: m[2],
         fonction: FONCTIONS_CABINET.map((f) => new RegExp(f, "i").exec(autour)).find(Boolean)?.[0] ?? (/ministre/i.test(autour) ? "ministre" : ""),
-        portefeuille: (/(ministre d[e']?\s?[a-zéèêàâ\s,'-]{3,80})/i.exec(autour)?.[0] ?? "").replace(/^ministre\s*/i, "").trim(),
+        portefeuille: (/(Premier ministre|ministre d[e']?\s?[^,.;]{3,80})/i.exec(autour)?.[0] ?? "").replace(/^ministre\s*/i, "").trim(),
         ministre: null,
         extrait: autour,
       });
