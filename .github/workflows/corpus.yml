@@ -36,8 +36,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ARGS=""
-          if [ -n "${{ inputs.release }}" ]; then ARGS="--pattern 'Freemium_jorf_global_*.tar.gz' --repo ${{ github.repository }}"; fi
           # gh release download [<tag>] : sans tag = release la plus récente
           if [ -n "${{ inputs.release }}" ]; then
             gh release download "${{ inputs.release }}" --repo "${{ github.repository }}" --pattern "Freemium_jorf_global_*.tar.gz"
