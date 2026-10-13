@@ -3,11 +3,13 @@
 -- que cleNom du bot : NFD, sans accents, minuscules, triée). À exécuter dans
 -- le SQL Editor du projet DATA après un import corpus (ou un balayage).
 -- Idempotent : ne touche que les lignes non déjà rapprochées.
+-- Colonnes réelles de collaborateurs : prenom/nom (pas collab_prenom/collab_nom).
 
 update cabinets_ministeriels c
 set collab_id    = b.collab_id,
-    collab_nom   = b.collab_nom,
-    collab_prenom = b.collab_prenom
+    collab_nom   = upper(b.nom),
+    collab_prenom = b.prenom,
+    personne_id  = coalesce(c.personne_id, b.personne_id)
 from collaborateurs b
 where c.collab_cle = b.collab_cle
   and (c.collab_id is null or c.collab_id <> b.collab_id);
