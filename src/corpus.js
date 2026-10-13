@@ -85,7 +85,9 @@ async function* xmlDuTar(chemin) {
     const contenu = taille > 0 ? await flux.lit(taille) : null;
     const pad = (512 - (taille % 512)) % 512;
     if (pad > 0) await flux.lit(pad); // alignement, ignoré
-    if (contenu === null || contenu.length < taille) return; // archive tronquée
+    // Archive tronquée : uniquement pour les entrées avec des données.
+    // (Les répertoires ont taille 0 et contenu null — c'est normal, pas une troncature.)
+    if (taille > 0 && (!contenu || contenu.length < taille)) return;
     if (type === "L") { nomLong = contenu.toString("utf8").replace(/\0[\s\S]*$/, ""); continue; }
     if (type === "x" || type === "X") {
       // En-tête pax étendu : le vrai chemin est dans un enregistrement « path=… »
