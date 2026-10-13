@@ -42,11 +42,13 @@ async function chargerMandats(ctx) {
 }
 
 // Portefeuilles du JORF → libellés de la table ministres (alias connus).
+// Clés normalisées par cleNom (le lookup se fait sur cles[0] normalisé).
 const ALIAS_PORTEFEUILLE = {
-  "de la justice": ["garde des sceaux"],
-  "de la justice et des libertes": ["garde des sceaux"],
-  "de interieur": [], "des armees": ["de la defense"],
-  "de la defense": ["des armees"],
+  [cleNom("de la justice")]: [cleNom("garde des sceaux")],
+  [cleNom("de la justice et des libertés")]: [cleNom("garde des sceaux")],
+  [cleNom("des armées")]: [cleNom("de la défense")],
+  [cleNom("de la défense")]: [cleNom("des armées")],
+  [cleNom("des affaires étrangères")]: [cleNom("des affaires étrangères et du développement international")],
 };
 
 // Nettoie un portefeuille extrait d'un décret : retire les préfixes
