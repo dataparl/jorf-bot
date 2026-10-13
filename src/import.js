@@ -41,13 +41,38 @@ async function chargerMandats(ctx) {
   }));
 }
 
+// Portefeuilles du JORF → libellés de la table ministres (alias connus).
+const ALIAS_PORTEFEUILLE = {
+  "de la justice": ["garde des sceaux"],
+  "de la justice et des libertes": ["garde des sceaux"],
+  "de interieur": [], "des armees": ["de la defense"],
+  "de la defense": ["des armees"],
+};
+
+// Nettoie un portefeuille extrait d'un décret : retire les préfixes
+// « délégué(e) (auprès) du ministre… » pour garder le portefeuille utile.
+function normaliserPortefeuille(p) {
+  let s = (p ?? "").trim();
+  // « … auprès du/de la ministre de l'économie » → « de l'économie »
+  const m = /aupr[eè]s (?:du|de la|de l|des) (?:premier ministre|ministre|ministre d[e']état|secrétaire d'état)\b(.*)$/i.exec(s);
+  if (m) {
+    s = (/premier ministre/i.test(s) ? "Premier ministre" : "") + m[1].trim();
+  }
+  // « délégué(e) auprès de… » résiduel
+  s = s.replace(/^d[eé]l[eé]gu[eé]e?\s*/i, "").replace(/^charg[eé]e?\s*/i, "").trim();
+  return s;
+}
+
 // Mandat en fonction à la date donnée pour un portefeuille (clé normalisée).
 // Retient le mandat le plus récent ; idem sur le nom si un nom est fourni.
 function mandaterParPortefeuille(ctx, portefeuille, date) {
-  const cle = cleNom((portefeuille ?? "").replace(/^ministre\s*/i, ""));
-  if (!cle || !ctx.mandats) return null;
+  const cles = [cleNom(normaliserPortefeuille(portefeuille).replace(/^ministre\s*/i, ""))];
+  // alias (justice → garde des sceaux, armées → défense…)
+  const alias = ALIAS_PORTEFEUILLE[cles[0]] ?? [];
+  for (const a of alias) cles.push(cleNom(a));
+  if (!cles[0] || !ctx.mandats) return null;
   const candidats = ctx.mandats.filter((m) =>
-    (m.cleP === cle || (cle.length >= 6 && m.cleP.includes(cle)))
+    cles.some((cle) => m.cleP === cle || (cle.length >= 8 && m.cleP.includes(cle)))
     && m.debut <= date && (!m.fin || m.fin >= date));
   candidats.sort((a, b) => (b.debut ?? "").localeCompare(a.debut ?? ""));
   return candidats[0]?.id ?? null;
