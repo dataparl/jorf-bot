@@ -30,9 +30,11 @@ async function chercherMinistre(prenom, nom) {
 const gouvernementDu = (extrait) =>
   /gouvernement\s+([A-ZÉÈ][a-zéè]+(?:\s+[IV]+)?)/.exec(extrait)?.[1] ?? "";
 
-// Un jour du JORF : relève, rapprochements, écritures.
-export async function importerJour(date) {
-  const mesures = await releverJour(date);
+// Import d'une liste de mesures nominatives déjà extraites (d'un zip quotidien
+// via releverJour, ou du corpus Freemium via src/corpus.js) : rapprochements
+// puis écritures. Sert aussi bien au balayage jour par jour qu'à l'import
+// du fonds historique — c'est le même traitement.
+export async function importerMesures(date, mesures) {
   const out = { date, nb: mesures.length, ministres: 0, cabinets: 0, erreurs: [] };
   for (const m of mesures) {
     try {
@@ -93,6 +95,12 @@ export async function importerJour(date) {
     erreurs: out.erreurs.slice(0, 5).join(" | ").slice(0, 500), synced_at: new Date().toISOString(),
   }]);
   return out;
+}
+
+// Un jour du JORF : télécharge le zip du jour puis importe ses mesures.
+export async function importerJour(date) {
+  const mesures = await releverJour(date);
+  return importerMesures(date, mesures);
 }
 
 export const demain = (date) => new Date(Date.parse(date) + 86_400_000).toISOString().slice(0, 10);
