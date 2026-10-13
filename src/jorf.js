@@ -6,7 +6,7 @@
 // Source : dumps JORFSIMPLE de la DILA (Premier ministre / data.gouv.fr,
 // réutilisation libre).
 
-import { inflateRawSync } from "node:zlib";
+import { gunzipSync, inflateRawSync } from "node:zlib";
 
 const BASE = "https://echanges.dila.gouv.fr/OPENDATA/JORFSIMPLE";
 
@@ -169,25 +169,164 @@ export function analyserJORF(xml, dateDefaut) {
 const UA = "DataParl (https://www.dataparl.fr), jorf-bot";
 
 // Fenêtre disponible sur JORFSIMPLE (index du dossier) : la DILA ne conserve
-// qu'une fenêtre glissante de quelques mois de zips quotidiens. Savoir jusqu'où
+// qu'une fenêtre glissante de quelques mois de dumps quotidiens. Savoir jusqu'où
 // on peut remonter évite de « balayer » des jours qui n'existent plus.
+// ⚠ Depuis le 13/07/2025 la DILA publie des JORFSIMPLE_<date>-<heure>.tar.gz
+// (et non plus des .zip) : l'index liste les deux extensions.
 export async function fenetreJorfsimple() {
   const r = await fetch(`${BASE}/`, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(25_000) });
   if (!r.ok) throw new Error(`index JORFSIMPLE : HTTP ${r.status}`);
   const texte = await r.text();
-  const dates = [...texte.matchAll(/JORFSIMPLE_(\d{8})\.zip/gi)].map((m) => m[1]).sort();
-  if (!dates.length) throw new Error("index JORFSIMPLE illisible (aucun zip listé)");
-  return { premier: dates[0], dernier: dates[dates.length - 1], nb: dates.length };
+  const dates = [...texte.matchAll(/JORFSIMPLE_(\d{8})-\d+\.t(?:ar\.gz|gz)/gi)]
+    .map((m) => m[1]);
+  const datesZip = [...texte.matchAll(/JORFSIMPLE_(\d{8})\.zip/gi)].map((m) => m[1]);
+  const toutes = [...new Set([...datesZip, ...dates])].sort();
+  if (!toutes.length) throw new Error("index JORFSIMPLE illisible (aucun dump listé)");
+  return { premier: toutes[0], dernier: toutes[toutes.length - 1], nb: toutes.length };
 }
 
-// Télécharge le JORF d'un jour et rend ses mesures nominatives. La DILA coupe
-// parfois les connexions : trois essais avec pauses croissantes.
+// Index JORFSIMPLE mis en cache : le balayage d'une plage de jours interroge
+// l'index une seule fois au lieu d'une requête par jour.
+let cacheIndex = { at: 0, fichiers: [] };
+export async function indexJorfsimple() {
+  if (cacheIndex.fichiers.length && Date.now() - cacheIndex.at < 30 * 60_000) return cacheIndex.fichiers;
+  const r = await fetch(`${BASE}/`, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(25_000) });
+  if (!r.ok) throw new Error(`index JORFSIMPLE : HTTP ${r.status}`);
+  const fichiers = [...(await r.text()).matchAll(/JORFSIMPLE_(\d{8})-?([\w.]*)\.t(?:ar\.gz|gz)/gi)]
+    .map((m) => `JORFSIMPLE_${m[1]}-${m[2] || "000000"}.tar.gz`)
+    .sort(); // trié : le dernier dump d'une journée = édition complète du soir
+  if (!fichiers.length) throw new Error("index JORFSIMPLE illisible (aucun tar.gz listé)");
+  cacheIndex = { at: Date.now(), fichiers };
+  return fichiers;
+}
+
+// Dernier dump .tar.gz publié pour un jour donné (édition du soir). Un jour
+// sans publication (dimanche) n'apparaît pas dans l'index → [].
+export async function fichiersJour(date) {
+  const pref = date.replace(/-/g, "");
+  return (await indexJorfsimple()).filter((f) => f.startsWith(`JORFSIMPLE_${pref}-`));
+}
+
+// ---------------------------------------------------------------------------
+// 2bis. tar.gz : décompression (zlib) puis lecture minimaliste du format tar
+// POSIX (blocs de 512 octets, entête ustar/GNU ; gère l'extension longname
+// « L »). Rend le contenu UTF-8 de chaque membre .xml.
+// ---------------------------------------------------------------------------
+export function xmlDuTarGz(buf) {
+  const decompresse = gunzipSync(buf);
+  const out = [];
+  let p = 0, nomEnAttente = null;
+  while (p + 512 <= decompresse.length) {
+    if (decompresse[p] === 0 && decompresse[p + 1] === 0) break; // blocs nuls finaux
+    const nom = decompresse.toString("utf8", p, p + 100).split("\0")[0];
+    const taille = parseInt(decompresse.toString("ascii", p + 124, p + 136).replace(/[\0 ]/g, ""), 8) || 0;
+    const type = String.fromCharCode(decompresse[p + 156] || 0x30);
+    const debut = p + 512;
+    if (type === "L") {
+      nomEnAttente = decompresse.toString("utf8", debut, debut + taille).split("\0")[0];
+    } else if (type === "0" || type === "\0" || type === "7") {
+      const nomFinal = nomEnAttente ?? nom;
+      nomEnAttente = null;
+      if (/\.xml$/i.test(nomFinal) && taille > 0 && taille < 10_000_000) {
+        out.push(decompresse.subarray(debut, debut + taille).toString("utf8"));
+      }
+    } else {
+      nomEnAttente = null; // répertoires, pax 'x'… : ignorés
+    }
+    p = debut + Math.ceil(taille / 512) * 512;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// 2ter. XML « JORFTEXT » des dumps quotidiens tar.gz (format DILA depuis le
+// 13/07/2025) : plus de balises <PERSONNE>, TITRE court + TITREFULL porteur
+// du sens, NATURE en MAJUSCULES non accentuées, noms en clair dans les
+// BLOC_TEXTUEL des articles. Seuls les textes PUBLIÉS ce jour-là sont retenus
+// (le dump du soir embarque aussi d'anciens textes rectifiés).
+// ---------------------------------------------------------------------------
+export function analyserTexteSimple(xml, dateJour) {
+  const out = [];
+  const natureBrute = balise(xml, "NATURE") ?? "";
+  const nature = { DECRET: "Décret", ARRETE: "Arrêté" }[natureBrute.trim().toUpperCase()] ?? natureBrute.trim();
+  if (!/^(décret|arrêté)$/i.test(nature)) return out;
+  const titre = sansBalises(balise(xml, "TITREFULL") ?? balise(xml, "TITRE") ?? "");
+  if (!/(nomination|cessation de fonctions|fin de fonctions|révocation|relatif à la composition|portant cessation)/i.test(titre)) return out;
+  const datePubli = balise(xml, "DATE_PUBLI")?.trim() ?? "";
+  // Le dump du soir embarque l'édition du jour et les textes récemment
+  // rectifiés (parfois très anciens). On retient les textes publiés depuis
+  // deux jours (jours fériés/dimanche décalent l'édition) : les écritures
+  // sont idempotentes (upsert), les recouvrements ne doublonnent rien.
+  const laVeille = (iso, n) => new Date(Date.parse(iso) - n * 86_400_000).toISOString().slice(0, 10);
+  if (dateJour && datePubli && (datePubli < laVeille(dateJour, 2) || datePubli > dateJour)) return out;
+  const date = dateJour || datePubli;
+  if (!date) return out;
+  const id = balise(xml, "ID") ?? `${date}-0`;
+  const corps = [...xml.matchAll(/<BLOC_TEXTUEL\b[^>]*>([\s\S]*?)<\/BLOC_TEXTUEL>/gi)]
+    .map((m) => sansBalises(m[1])).join(" ");
+  const texte = `${titre}. ${corps}`;
+  const type = /(cessation de fonctions|fin de fonctions|révocation|cessation)/i.test(titre) ? "cessation" : "nomination";
+  for (const m of texte.matchAll(/(?:M\.|Mme)\s+([A-ZÉÈ][\p{L}'’-]+)\s+([A-ZÉÈ][\p{L}'’-]+(?:\s+[A-ZÉÈ][\p{L}'’-]+){0,2})/gu)) {
+    const apres = texte.slice(m.index, m.index + 400); // depuis le nom : « est nommé conseiller… au cabinet du ministre de l'intérieur »
+    const avant = texte.slice(Math.max(0, m.index - 120), m.index);
+    const rCabinet = FONCTIONS_CABINET.map((f) => new RegExp(f, "i").exec(apres)).find(Boolean);
+    const rMinistre = /(ministre d[e']\s?[ÉEa-zéèêàâ\s,'-]{3,80}|ministre chargé[e]? de[^,.;]{3,80}|Premier ministre|secrétaire d[ée]?tat [àa][^,.;]{3,60})/i.exec(apres);
+    // Un membre de cabinet se reconnaît à une fonction de cabinet APRÈS son
+    // nom et au mot « cabinet » dans le contexte (le titre des arrêtés dit
+    // toujours « portant nomination au cabinet du/de la … ») ; sinon c'est une
+    // autre nomination nominative (Conseil d'État, administration…) : pas un
+    // membre de cabinet.
+    const role = rCabinet && /cabinet/i.test(`${titre} ${avant} ${apres}`) ? "cabinet" : "ministre";
+    const autour = `${avant} ${apres}`;
+    const ministre = (() => {
+      if (role !== "cabinet") return null;
+      const r = /(?:auprès|chez|cabinet)\s+d[e']?\s*(?:M\.|Mme|Madame|Monsieur)\s+([A-ZÉÈ][\p{L}'’-]+)\s+([A-ZÉÈ][\p{L}'’-]+(?:\s+[A-ZÉÈ][\p{L}'’-]+)?)/u.exec(autour);
+      if (r) {
+        const nom = r[1] === r[1].toUpperCase() ? r[1] : r[2];
+        const prenom = r[1] === r[1].toUpperCase() ? r[2] : r[1];
+        return { prenom, nom };
+      }
+      return null;
+    })();
+    out.push({
+      id_texte: id, date, nature, titre, type, role,
+      civilite: m[0].startsWith("Mme") ? "Mme" : "M.",
+      prenom: m[1], nom: m[2],
+      fonction: (rCabinet?.[0] ?? (role === "ministre" ? rMinistre?.[0] : "") ?? "").trim(),
+      portefeuille: role === "cabinet"
+        ? // Le portefeuille figure dans le titre de l'arrêté (« portant
+          // nomination au cabinet du ministre de l'économie… ») : plus fiable
+          // que le voisinage du nom, surtout quand le cabinet a dix membres.
+          (((/cabinet\s+d(?:u|e la|e l'|es)\s+([^,.;]{3,90})/i.exec(titre)?.[1]
+            ?? (rMinistre ?? /ministre\s+[^,.;]{3,80}/i.exec(autour))?.[0] ?? "")
+            .replace(/^ministre\s*/i, "")
+            .split(/\s(?:à compter|prenant effet|à partir|jusqu'|pour la durée|en remplacement)/i)[0].trim()))
+        : (rMinistre?.[0] ?? "").replace(/^ministre\s*/i, "").trim(),
+      ministre,
+      extrait: autour.replace(/\s+/g, " ").slice(0, 400),
+    });
+  }
+  const vus = new Set();
+  return out.filter((m) => {
+    const k = `${m.id_texte}|${cleNom(m.prenom, m.nom)}|${m.type}|${m.role}`;
+    if (vus.has(k)) return false;
+    vus.add(k);
+    return true;
+  });
+}
+
+// Télécharge le JORF d'un jour et rend ses mesures nominatives. Depuis le
+// 13/07/2025 : dernier dump JORFSIMPLE_<date>-<heure>.tar.gz du jour. La DILA
+// coupe parfois les connexions : trois essais avec pauses croissantes.
 export async function releverJour(date) {
+  const fichiers = await fichiersJour(date);
+  if (!fichiers.length) return []; // pas de publication ce jour-là (ou hors fenêtre)
+  const url = `${BASE}/${fichiers[fichiers.length - 1]}`;
   let r = null;
   let derniereErreur = null;
   for (let essai = 0; essai < 3; essai += 1) {
     try {
-      r = await fetch(lienJORF(date), { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(25_000) });
+      r = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(25_000) });
       break;
     } catch (e) {
       derniereErreur = e;
@@ -196,11 +335,11 @@ export async function releverJour(date) {
     }
   }
   if (!r) throw new Error(`JORF ${date} : inaccessible (${derniereErreur?.message ?? "réseau"})`);
-  if (r.status === 404) return []; // pas de publication ce jour-là (ou hors fenêtre)
+  if (r.status === 404) return []; // retiré de la fenêtre glissante entre-temps
   if (!r.ok) throw new Error(`JORF ${date} : HTTP ${r.status}`);
   const brut = Buffer.from(await r.arrayBuffer());
-  if (brut.length > 80_000_000) throw new Error(`JORF ${date} : zip trop volumineux`);
-  return xmlDuZip(brut).flatMap((x) => analyserJORF(x, date));
+  if (brut.length > 80_000_000) throw new Error(`JORF ${date} : tar.gz trop volumineux`);
+  return xmlDuTarGz(brut).flatMap((x) => analyserTexteSimple(x, date));
 }
 
 // ---------------------------------------------------------------------------

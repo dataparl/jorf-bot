@@ -148,6 +148,22 @@ export async function importerMesuresBrut(date, mesures, ctx) {
     } catch (e) { out.erreurs.push(`${m.prenom} ${m.nom} : ${e.message}`); }
   }
   if (aEcrire.length) {
+    // Rapprochement immédiat avec la table collaborateurs (collab_id) par
+    // cle : une seule requête pour tout le lot. Les lignes sans équivalent
+    // restent à null (pas collaborateur parlementaire) ; la passe SQL
+    // (scripts/rapprochements.sql) demeure utile pour personne_id.
+    const cles = [...new Set(aEcrire.map((l) => l.collab_cle))].filter(Boolean);
+    if (cles.length) {
+      const connus = await lire("collaborateurs", new URLSearchParams({
+        select: "collab_id,collab_prenom,collab_nom,collab_cle",
+        collab_cle: `in.(${cles.map((c) => `"${c}"`).join(",")})`, limit: "1000",
+      })).catch(() => []);
+      const parCle = new Map(connus.map((c) => [c.collab_cle, c]));
+      for (const l of aEcrire) {
+        const c = parCle.get(l.collab_cle);
+        if (c) { l.collab_id = c.collab_id; l.collab_prenom = c.collab_prenom; l.collab_nom = c.collab_nom.toUpperCase(); }
+      }
+    }
     await ecrire("cabinets_ministeriels", aEcrire);
     for (const l of aEcrire) dejaEcrits.set(l.id, l);
   }
@@ -158,70 +174,16 @@ export async function importerMesuresBrut(date, mesures, ctx) {
   return out;
 }
 
-// Un jour du JORF : relève, rapprochements, écritures (mode quotidien, avec
-// rapprochements individuels et création éventuelle du ministre de rattachement).
+// Un jour du JORF : relève puis import via la même logique que le corpus
+// (importerMesuresBrut). Le mode quotidien partage désormais la politique
+// d'écriture du corpus : seule la table cabinets_ministeriels est écrite —
+// la table ministres est tenue par ailleurs (CSV gouvernement) et les
+// rapprochements collab_id se font inline. Les mesures « ministre » servent
+// uniquement de cache de rattachement (aucune écriture).
+const ctxJour = { ministres: new Map() };
 export async function importerJour(date) {
   const mesures = await releverJour(date);
-  const out = { date, nb: mesures.length, ministres: 0, cabinets: 0, erreurs: [] };
-  for (const m of mesures) {
-    try {
-      if (m.role === "ministre") {
-        const personneId = await chercherParlementaire(m.prenom, m.nom).catch(() => null);
-        if (m.type === "cessation") {
-          const deja = await lire("ministres", new URLSearchParams({
-            select: "id", nom: `ilike.${m.nom}`, prenom: `ilike.${m.prenom}`, fin: "is.null",
-          }));
-          if (deja.length) await maj("ministres", { fin: m.date, synced_at: new Date().toISOString() },
-            new URLSearchParams({ id: `in.(${deja.map((x) => x.id).join(",")})` }));
-        } else {
-          await ecrire("ministres", [{
-            id: idMinistre(m.nom, m.date), personne_id: personneId, civilite: m.civilite,
-            prenom: m.prenom, nom: m.nom,
-            fonction: m.fonction || "ministre", portefeuille: m.portefeuille,
-            gouvernement: gouvernementDu(m.extrait), rang: "",
-            debut: m.date, fin: null,
-            source: `JORF ${m.id_texte}`, confiance: "officiel",
-          }]);
-        }
-        out.ministres++;
-      } else {
-        const ref = m.ministre ?? { prenom: "", nom: "" };
-        let ministreId = ref.nom ? await chercherMinistre(ref.prenom, ref.nom).catch(() => null) : null;
-        if (!ministreId && ref.nom) {
-          const id = idMinistre(ref.nom, m.date);
-          await ecrire("ministres", [{
-            id, personne_id: null, civilite: "M.", prenom: ref.prenom, nom: ref.nom,
-            fonction: "ministre", portefeuille: "", gouvernement: gouvernementDu(m.extrait), rang: "",
-            debut: m.date, fin: null, source: `JORF ${m.id_texte} (rattachement de cabinet)`, confiance: "officiel",
-          }]);
-          ministreId = id;
-        }
-        if (!ministreId) { out.erreurs.push(`${m.prenom} ${m.nom} : ministre de rattachement introuvable`); continue; }
-        const cle = cleNom(m.prenom, m.nom);
-        const collab = await chercherCollaborateur(m.prenom, m.nom).catch(() => null);
-        if (m.type === "cessation") {
-          await maj("cabinets_ministeriels", { fin: m.date, synced_at: new Date().toISOString() },
-            new URLSearchParams({ collab_cle: `eq.${cle}`, fin: "is.null" }));
-        } else {
-          const personneId = collab ? null : await chercherParlementaire(m.prenom, m.nom).catch(() => null);
-          await ecrire("cabinets_ministeriels", [{
-            id: idCabinet(ministreId, m.prenom, m.nom), ministre_id: ministreId,
-            personne_id: personneId, collab_id: collab?.collab_id ?? null, collab_cle: cle,
-            collab_nom: (collab?.collab_nom ?? m.nom).toUpperCase(), collab_prenom: collab?.collab_prenom ?? m.prenom,
-            fonction: m.fonction || "membre de cabinet",
-            source: `JORF ${m.id_texte}`, confiance: "officiel", date_source: m.date,
-            debut: m.date, fin: null,
-          }]);
-        }
-        out.cabinets++;
-      }
-    } catch (e) { out.erreurs.push(`${m.prenom} ${m.nom} : ${e.message}`); }
-  }
-  await ecrire("jorf_releves", [{
-    date_jorf: date, nb_mesures: out.nb, nb_ministres: out.ministres, nb_cabinets: out.cabinets,
-    erreurs: out.erreurs.slice(0, 5).join(" | ").slice(0, 500), synced_at: new Date().toISOString(),
-  }]);
-  return out;
+  return importerMesuresBrut(date, mesures, ctxJour);
 }
 
 export const demain = (date) => new Date(Date.parse(date) + 86_400_000).toISOString().slice(0, 10);
@@ -233,10 +195,12 @@ export async function joursBalayes() {
 }
 
 // Balayage d'une plage de jours, en reprenant là où il s'était arrêté.
-// Si tout échoue d'emblée (réseau coupé, table absente…), on s'arrête vite
-// avec un message clair au lieu d'attraper des centaines d'erreurs.
-export async function balayer(debut, fin, verbeux = true) {
-  const vus = await joursBalayes().catch(() => new Set());
+// `forcer` ignore les jours déjà « balayés » (utile après un bug : des jours
+// marqués avec 0 mesure alors que le JORF en publiait). Si tout échoue d'emblée
+// (réseau coupé, table absente…), on s'arrête vite avec un message clair
+// au lieu d'attraper des centaines d'erreurs.
+export async function balayer(debut, fin, verbeux = true, forcer = false) {
+  const vus = forcer ? new Set() : await joursBalayes().catch(() => new Set());
   const jours = [];
   let d = debut, restants = 0, echecsConsecutifs = 0, enErreur = 0;
   while (d <= fin) {

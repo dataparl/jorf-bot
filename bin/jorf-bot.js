@@ -6,6 +6,7 @@
 //   node bin/jorf-bot.js veille              (hier + avant-hier, comme le cron)
 //   node bin/jorf-bot.js rattraper           (2017-01-01 → hier)
 //   node bin/jorf-bot.js balayer 2024-01-01 2024-06-30
+//   node bin/jorf-bot.js balayer 2025-07-14 --forcer   (rattrapage complet, même les jours déjà balayés)
 //   node bin/jorf-bot.js corpus Freemium_jorf_global_20250713-140000.tar.gz 2012-01-01 2025-07-13
 
 import { balayer, importerJour, statut } from "../src/import.js";
@@ -95,8 +96,10 @@ async function main() {
       break;
     }
     case "balayer": {
-      if (!ISO.test(args[0] ?? "")) { console.error("Usage : jorf-bot balayer YYYY-MM-DD [YYYY-MM-DD]"); process.exit(1); }
-      const r = await balayer(args[0], ISO.test(args[1] ?? "") ? args[1] : aujourdhui(1));
+      const forcer = args.includes("--forcer"); // re-balayer même les jours déjà « balayés » (rattrapage après bug)
+      const dates = args.filter((a) => ISO.test(a));
+      if (!ISO.test(dates[0] ?? "")) { console.error("Usage : jorf-bot balayer YYYY-MM-DD [YYYY-MM-DD] [--forcer]"); process.exit(1); }
+      const r = await balayer(dates[0], ISO.test(dates[1] ?? "") ? dates[1] : aujourdhui(1), true, forcer);
       console.log(`${r.jours.length} jour(s) traité(s), ${r.enErreur ?? 0} en erreur.`);
       break;
     }
@@ -112,7 +115,7 @@ async function main() {
       break;
     }
     default:
-      console.error("Commandes : statut | diagnostique | jour <date> | veille | rattraper | balayer <debut> [fin] | corpus <archive.tar.gz | dossier> <debut> [fin]");
+      console.error("Commandes : statut | diagnostique | jour <date> | veille | rattraper | balayer <debut> [fin] [--forcer] | corpus <archive.tar.gz | dossier> <debut> [fin]");
       process.exit(1);
   }
 }

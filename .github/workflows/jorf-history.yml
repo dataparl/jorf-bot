@@ -17,6 +17,11 @@ on:
         description: "Date de fin (YYYY-MM-DD) — hier par défaut"
         required: false
         type: string
+      forcer:
+        description: "Re-balayer aussi les jours déjà « balayés » (rattrapage après bug, ex. format DILA changé)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -48,7 +53,7 @@ jobs:
           DATA_SUPABASE_KEY: ${{ secrets.DATA_SUPABASE_KEY }}
           DATA_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.DATA_SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          node bin/jorf-bot.js balayer "${{ inputs.date_debut }}" ${{ inputs.date_fin && format('"{0}"', inputs.date_fin) || '' }} 2>&1 | tee balayage.log
+          node bin/jorf-bot.js balayer "${{ inputs.date_debut }}" ${{ inputs.date_fin && format('"{0}"', inputs.date_fin) || '' }} ${{ inputs.forcer && '--forcer' || '' }} 2>&1 | tee balayage.log
       - name: Statut après balayage
         if: always()
         env:
