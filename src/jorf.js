@@ -192,8 +192,9 @@ export async function indexJorfsimple() {
   if (cacheIndex.fichiers.length && Date.now() - cacheIndex.at < 30 * 60_000) return cacheIndex.fichiers;
   const r = await fetch(`${BASE}/`, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(25_000) });
   if (!r.ok) throw new Error(`index JORFSIMPLE : HTTP ${r.status}`);
-  const fichiers = [...(await r.text()).matchAll(/JORFSIMPLE_(\d{8})-?([\w.]*)\.t(?:ar\.gz|gz)/gi)]
-    .map((m) => `JORFSIMPLE_${m[1]}-${m[2] || "000000"}.tar.gz`)
+  // l'index Apache liste chaque nom deux fois (lien + texte) : dédoublonnage
+  const fichiers = [...new Set([...(await r.text()).matchAll(/JORFSIMPLE_(\d{8})-?([\w.]*)\.t(?:ar\.gz|gz)/gi)]
+    .map((m) => `JORFSIMPLE_${m[1]}-${m[2] || "000000"}.tar.gz`))]
     .sort(); // trié : le dernier dump d'une journée = édition complète du soir
   if (!fichiers.length) throw new Error("index JORFSIMPLE illisible (aucun tar.gz listé)");
   cacheIndex = { at: Date.now(), fichiers };
