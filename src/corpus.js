@@ -30,7 +30,9 @@ const PARALLELE = 16; // lecture + analyse des fichiers (mode dossier)
 // ---------------------------------------------------------------------------
 class Flux {
   constructor(chemin) {
-    this.it = createReadStream(chemin).pipe(createGunzip())[Symbol.asyncIterator]();
+    const brut = createReadStream(chemin);
+    const gz = /\.(tar\.gz|tgz)$/i.test(chemin) ? brut.pipe(createGunzip()) : brut; // .tar brut accepté
+    this.it = gz[Symbol.asyncIterator]();
     this.tampons = [];
     this.longueur = 0;
   }
@@ -116,7 +118,7 @@ async function listerXml(chemin) {
 // ---------------------------------------------------------------------------
 export async function importerCorpus(chemin, debut, fin, verbeux = true) {
   const mesures = [];
-  if (/\.(tar\.gz|tgz)$/i.test(chemin)) {
+  if (/\.(tar(\.gz)?|tgz)$/i.test(chemin)) {
     if (verbeux) console.log(`Lecture en streaming de ${chemin} (aucune extraction)…`);
     let lus = 0, vus = 0;
     for await (const { nom, xml } of xmlDuTar(chemin)) {
