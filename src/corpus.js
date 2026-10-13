@@ -88,10 +88,10 @@ async function* xmlDuTar(chemin) {
     // Archive tronquée : uniquement pour les entrées avec des données.
     // (Les répertoires ont taille 0 et contenu null — c'est normal, pas une troncature.)
     if (taille > 0 && (!contenu || contenu.length < taille)) return;
-    if (type === "L") { nomLong = contenu.toString("utf8").replace(/\0[\s\S]*$/, ""); continue; }
+    if (type === "L") { nomLong = contenu?.toString("utf8").replace(/\0[\s\S]*$/, "") ?? null; continue; }
     if (type === "x" || type === "X") {
       // En-tête pax étendu : le vrai chemin est dans un enregistrement « path=… »
-      const pax = contenu.toString("utf8");
+      const pax = contenu?.toString("utf8") ?? "";
       const m = /(?:^|\n)\d+ path=([^\n]*)/.exec(pax);
       nomPax = m ? m[1] : null;
       continue;
