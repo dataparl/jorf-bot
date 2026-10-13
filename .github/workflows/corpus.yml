@@ -1,7 +1,7 @@
 name: corpus
 # Import one-shot du dump Freemium global (cabinets ministériels 2012 -> date du dump).
 # L'archive .tar.gz doit être publiée dans une Release du dépôt (asset nommé
-# Freemium_jorf_global_*.tar.gz) — Actions la télécharge et lit en streaming.
+# Freemium_jorf_global_*.tar*) — Actions la télécharge et lit en streaming.
 # Pas d'accès DILA ici : l'IP du runner ne pose donc aucun problème.
 on:
   workflow_dispatch:
@@ -38,18 +38,18 @@ jobs:
         run: |
           # gh release download [<tag>] : sans tag = release la plus récente
           if [ -n "${{ inputs.release }}" ]; then
-            gh release download "${{ inputs.release }}" --repo "${{ github.repository }}" --pattern "Freemium_jorf_global_*.tar.gz"
+            gh release download "${{ inputs.release }}" --repo "${{ github.repository }}" --pattern "Freemium_jorf_global_*.tar*"
           else
-            gh release download --repo "${{ github.repository }}" --pattern "Freemium_jorf_global_*.tar.gz"
+            gh release download --repo "${{ github.repository }}" --pattern "Freemium_jorf_global_*.tar*"
           fi
-          ls -lh Freemium_jorf_global_*.tar.gz
+          ls -lh Freemium_jorf_global_*.tar*
       - name: "Corpus ${{ inputs.debut }} -> ${{ inputs.fin }}"
         env:
           DATA_SUPABASE_URL: ${{ secrets.DATA_SUPABASE_URL }}
           DATA_SUPABASE_KEY: ${{ secrets.DATA_SUPABASE_KEY }}
           DATA_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.DATA_SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          node bin/jorf-bot.js corpus Freemium_jorf_global_*.tar.gz "${{ inputs.debut }}" "${{ inputs.fin }}" 2>&1 | tee corpus.log
+          node bin/jorf-bot.js corpus Freemium_jorf_global_*.tar* "${{ inputs.debut }}" "${{ inputs.fin }}" 2>&1 | tee corpus.log
       - name: Publier le journal sur la branche logs
         if: always()
         run: |
