@@ -30,11 +30,66 @@ async function chercherMinistre(prenom, nom) {
 const gouvernementDu = (extrait) =>
   /gouvernement\s+([A-ZÉÈ][a-zéè]+(?:\s+[IV]+)?)/.exec(extrait)?.[1] ?? "";
 
-// Import d'une liste de mesures nominatives déjà extraites (d'un zip quotidien
-// via releverJour, ou du corpus Freemium via src/corpus.js) : rapprochements
-// puis écritures. Sert aussi bien au balayage jour par jour qu'à l'import
-// du fonds historique — c'est le même traitement.
-export async function importerMesures(date, mesures) {
+// ---------------------------------------------------------------------------
+// Mode corpus (import en masse d'un jour) : écrit UNIQUEMENT cabinets_ministeriels.
+// Les mesures ministres ne sont pas écrites (la table `ministres` est déjà
+// tenue par ailleurs) : elles servent à tenir le cache des mandats (ctx) pour
+// rattacher chaque cabinet au bon mandat — cache d'abord, puis une recherche
+// dans la table existante en cas de miss. Écritures groupées, cessations par
+// PATCH filtré. Les rapprochements collab_id / personne_id se font ensuite en
+// une passe SQL (scripts/rapprochements.sql).
+// ---------------------------------------------------------------------------
+export async function importerMesuresBrut(date, mesures, ctx) {
+  const now = new Date().toISOString();
+  const out = { date, nb: mesures.length, ministres: 0, cabinets: 0, erreurs: [] };
+  const aEcrire = [];
+  for (const m of mesures) {
+    try {
+      if (m.role === "ministre") {
+        const cle = cleNom(m.prenom, m.nom);
+        if (m.type === "cessation") ctx.ministres.delete(cle);
+        else ctx.ministres.set(cle, idMinistre(m.nom, m.date));
+        out.ministres++;
+      } else {
+        const ref = m.ministre ?? { prenom: "", nom: "" };
+        if (!ref.nom) { out.erreurs.push(`${m.prenom} ${m.nom} : ministre de rattachement introuvable`); continue; }
+        const cleRef = cleNom(ref.prenom, ref.nom);
+        let ministreId = ctx.ministres.get(cleRef) ?? null;
+        if (!ministreId) {
+          ministreId = await chercherMinistre(ref.prenom, ref.nom).catch(() => null);
+          if (ministreId) ctx.ministres.set(cleRef, ministreId);
+        }
+        if (!ministreId) { out.erreurs.push(`${m.prenom} ${m.nom} : mandat de ${ref.prenom} ${ref.nom} introuvable`); continue; }
+        const cle = cleNom(m.prenom, m.nom);
+        if (m.type === "cessation") {
+          await maj("cabinets_ministeriels", { fin: m.date, synced_at: now },
+            new URLSearchParams({ collab_cle: `eq.${cle}`, fin: "is.null" }));
+        } else {
+          aEcrire.push({
+            id: idCabinet(ministreId, m.prenom, m.nom), ministre_id: ministreId,
+            personne_id: null, collab_id: null, collab_cle: cle,
+            collab_nom: m.nom.toUpperCase(), collab_prenom: m.prenom,
+            fonction: m.fonction || "membre de cabinet",
+            source: `JORF ${m.id_texte}`, confiance: "officiel", date_source: m.date,
+            debut: m.date, fin: null,
+          });
+        }
+        out.cabinets++;
+      }
+    } catch (e) { out.erreurs.push(`${m.prenom} ${m.nom} : ${e.message}`); }
+  }
+  if (aEcrire.length) await ecrire("cabinets_ministeriels", aEcrire);
+  await ecrire("jorf_releves", [{
+    date_jorf: date, nb_mesures: out.nb, nb_ministres: out.ministres, nb_cabinets: out.cabinets,
+    erreurs: out.erreurs.slice(0, 5).join(" | ").slice(0, 500), synced_at: now,
+  }]);
+  return out;
+}
+
+// Un jour du JORF : relève, rapprochements, écritures (mode quotidien, avec
+// rapprochements individuels et création éventuelle du ministre de rattachement).
+export async function importerJour(date) {
+  const mesures = await releverJour(date);
   const out = { date, nb: mesures.length, ministres: 0, cabinets: 0, erreurs: [] };
   for (const m of mesures) {
     try {
@@ -95,12 +150,6 @@ export async function importerMesures(date, mesures) {
     erreurs: out.erreurs.slice(0, 5).join(" | ").slice(0, 500), synced_at: new Date().toISOString(),
   }]);
   return out;
-}
-
-// Un jour du JORF : télécharge le zip du jour puis importe ses mesures.
-export async function importerJour(date) {
-  const mesures = await releverJour(date);
-  return importerMesures(date, mesures);
 }
 
 export const demain = (date) => new Date(Date.parse(date) + 86_400_000).toISOString().slice(0, 10);
