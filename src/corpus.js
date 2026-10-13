@@ -98,13 +98,16 @@ async function* xmlDuTar(chemin) {
     }
     if (type === "K" || type === "g") continue; // longlink, pax global : ignorés
     if (nomPax) { nom = nomPax; nomPax = null; }
-    else if (nomLong) { nomLong = null; }
+    else if (nomLong) { nom = nomLong; nomLong = null; }
     if (type !== "0" && type !== "\0") continue; // répertoires, liens… : ignorés
+    if (taille === 0) continue; // fichier vide
     if (vusBrut < 3) console.log(`  entrée tar : ${nom}`);
     vusBrut++;
-    if (!/(^|\/)jorf\//i.test(nom)) continue; // uniquement le fonds JORF
-    // Le dump Freemium nomme ses fichiers SANS extension .xml (ex. …/jo/article_9) :
-    // on n'exige pas d'extension, la validité XML est vérifiée à l'analyse.
+    // Uniquement la famille « texte » du dump Freemium (jorf/global/texte/…) :
+    // c'est le format TEXTE (TITRE, NATURE, SM, CONTENU) des dumps quotidiens
+    // JORFSIMPLE. Les familles eli (métadonnées), article (articles isolés),
+    // section_ta et conteneur sont d'autres formats sans mesures exploitables.
+    if (!/(^|\/)jorf\/global\/texte\//i.test(nom)) continue;
     yield { nom, xml: contenu.toString("utf8") };
   }
 }
