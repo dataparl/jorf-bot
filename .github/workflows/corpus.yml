@@ -43,6 +43,14 @@ jobs:
             gh release download --repo "${{ github.repository }}" --pattern "Freemium_jorf_global_*.tar*"
           fi
           ls -lh Freemium_jorf_global_*.tar*
+      - name: Diagnostic archive (vérité terrain)
+        run: |
+          A=$(ls Freemium_jorf_global_*.tar* | head -1)
+          echo "== fichier =="; ls -lh "$A"; file "$A" || true
+          echo "== 512 premiers octets (hex) =="; head -c 512 "$A" | od -A x -t x1z | head -8
+          echo "== gunzip test =="; head -c 4 "$A" | od -A n -t x1
+          echo "== entrées tar (20 premières) =="; tar -tf "$A" 2>&1 | head -20 || true
+          echo "== nombre total d'entrées (peut être long) =="; timeout 600 tar -tf "$A" 2>/dev/null | wc -l || true
       - name: "Corpus ${{ inputs.debut }} -> ${{ inputs.fin }}"
         env:
           DATA_SUPABASE_URL: ${{ secrets.DATA_SUPABASE_URL }}
