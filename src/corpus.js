@@ -17,7 +17,7 @@ import { createReadStream } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { createGunzip } from "node:zlib";
 import { join } from "node:path";
-import { analyserJORF } from "./jorf.js";
+import { analyserArticleFreemium } from "./jorf.js";
 import { importerMesuresBrut } from "./import.js";
 
 // Rejet rapide avant analyse : le titre doit contenir un mot-clé nominatif
@@ -103,11 +103,12 @@ async function* xmlDuTar(chemin) {
     if (taille === 0) continue; // fichier vide
     if (vusBrut < 3) console.log(`  entrée tar : ${nom}`);
     vusBrut++;
-    // Uniquement la famille « texte » du dump Freemium (jorf/global/texte/…) :
-    // c'est le format TEXTE (TITRE, NATURE, SM, CONTENU) des dumps quotidiens
-    // JORFSIMPLE. Les familles eli (métadonnées), article (articles isolés),
-    // section_ta et conteneur sont d'autres formats sans mesures exploitables.
-    if (!/(^|\/)jorf\/global\/texte\//i.test(nom)) continue;
+    // Uniquement la famille « article » du dump Freemium (jorf/global/article/…) :
+    // c'est là que vit le contenu nominatif (format ARTICLE avec CONTEXTE/TEXTE
+    // et BLOC_TEXTUEL, cf. analyserArticleFreemium). Les familles eli
+    // (métadonnées ELI), texte/struct (TEXTELR, métadonnées seules), section_ta
+    // et conteneur ne portent ni SM ni contenu exploitable.
+    if (!/(^|\/)jorf\/global\/article\//i.test(nom)) continue;
     yield { nom, xml: contenu.toString("utf8") };
   }
 }
@@ -143,7 +144,7 @@ export async function importerCorpus(chemin, debut, fin, verbeux = true) {
       if (verbeux && vus <= 3) console.log(`  entrée #${vus} : ${nom}`);
       lus += 1;
       if (FILTRE_TITRE.test(xml)) {
-        for (const m of analyserJORF(xml)) if (m.date >= debut && m.date <= fin) mesures.push(m);
+        for (const m of analyserArticleFreemium(xml)) if (m.date >= debut && m.date <= fin) mesures.push(m);
       }
       if (verbeux && lus % 5000 === 0) console.log(`  … ${lus} fichier(s) JORF lu(s), ${mesures.length} mesure(s)`);
     }
@@ -158,7 +159,7 @@ export async function importerCorpus(chemin, debut, fin, verbeux = true) {
         if (!infos || infos.size === 0 || infos.size > 60_000_000) return [];
         const xml = await readFile(p, "utf8").catch(() => "");
         if (!xml || !FILTRE_TITRE.test(xml)) return [];
-        return analyserJORF(xml).filter((m) => m.date >= debut && m.date <= fin);
+        return analyserArticleFreemium(xml).filter((m) => m.date >= debut && m.date <= fin);
       }));
       mesures.push(...lot.flat());
       if (verbeux && (i / PARALLELE) % 200 === 199) console.log(`  … ${Math.min(i + PARALLELE, fichiers.length)} fichiers parcourus, ${mesures.length} mesure(s)`);
