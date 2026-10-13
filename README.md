@@ -53,6 +53,35 @@ connexion depuis les runners. La fenêtre JORFSIMPLE ne conserve qu'environ dix
 mois de zips quotidiens ; l'historique antérieur passe par les archives (les
 ministres 2017-2026 sont déjà en base).
 
+## Exécution depuis la maison (conteneur Docker sur la box Home Assistant)
+
+Même pattern que le runner europarl (`collabs/pe_waf.py`) : un conteneur Docker
+sur la box Home Assistant — toujours allumée, IP résidentielle acceptée par la
+DILA — qui gère son propre cron. Pas besoin de Playwright : l'image Node
+suffit, et la lecture DILA est du HTTP simple.
+
+```bash
+# 1. Conteneur persistant avec le dépôt monté et les secrets en env
+docker run -d --name jorf --restart unless-stopped \
+  -v /opt/jorf-bot:/app -w /app \
+  -e DATA_SUPABASE_URL=https://yuhqajaznizwmenmyzms.supabase.co \
+  -e DATA_SUPABASE_KEY=<clé publishable> \
+  -e DATA_SUPABASE_SERVICE_ROLE_KEY=<clé service_role> \
+  node:20-alpine sleep infinity
+
+# 2. Backfill initial (fenêtre JORFSIMPLE ≈ 10 mois) — dans le conteneur :
+docker exec jorf node bin/jorf-bot.js balayer 2025-12-15 2026-10-12
+
+# 3. Cron quotidien (07:20 UTC = après publication du dump de la veille,
+#    avant le Daily de 06:30 UTC le lendemain) :
+docker exec jorf node bin/jorf-bot.js veille
+```
+
+Le cron peut être assuré par un `crontab` dans le conteneur, par le planificateur
+de la box, ou par une automatisation Home Assistant appelant le `docker exec`.
+Limite connue : JORFSIMPLE ne conserve qu'environ dix mois de dumps ; pour les
+jours antérieurs (début du gouvernement courant), passer par Légifrance.
+
 ## Sources
 
 Dumps JORFSIMPLE de la DILA (Premier ministre / data.gouv.fr, réutilisation
