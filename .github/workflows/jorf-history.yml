@@ -64,6 +64,6 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin logs --depth=1 || true
           git switch -c logs
-          git add jorf-history.log
+          git add -f jorf-history.log
           git commit -m "journal jorf-history (run ${{ github.run_id }})"
           git push origin logs --force
