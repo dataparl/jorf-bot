@@ -1,0 +1,59 @@
+name: rattrapage-cabinets (one-shot)
+# Rattrapage unique du trou 14/07/2025 -> hier : la DILA a changé de format
+# le 13/07/2025 (tar.gz au lieu de zip) et le bot ratait toutes les mesures
+# depuis. Ce workflow se déclenche au push, balaye toute la fenêtre DILA
+# disponible avec --forcer (les jours étaient marqués « balayés » à 0 mesure),
+# publie son journal sur la branche logs, PUIS SE SUPPRIME (git rm) pour ne
+# jamais se relancer.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  rattrapage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - name: Diagnostique avant rattrapage
+        env:
+          DATA_SUPABASE_URL: ${{ secrets.DATA_SUPABASE_URL }}
+          DATA_SUPABASE_KEY: ${{ secrets.DATA_SUPABASE_KEY }}
+          DATA_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.DATA_SUPABASE_SERVICE_ROLE_KEY }}
+        run: node bin/jorf-bot.js diagnostique 2>&1 | tee diagnostique.log
+      - name: Rattrapage 2025-07-14 -> hier (--forcer)
+        env:
+          DATA_SUPABASE_URL: ${{ secrets.DATA_SUPABASE_URL }}
+          DATA_SUPABASE_KEY: ${{ secrets.DATA_SUPABASE_KEY }}
+          DATA_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.DATA_SUPABASE_SERVICE_ROLE_KEY }}
+        run: node bin/jorf-bot.js balayer 2025-07-14 --forcer 2>&1 | tee rattrapage.log
+      - name: Statut après rattrapage
+        if: always()
+        env:
+          DATA_SUPABASE_URL: ${{ secrets.DATA_SUPABASE_URL }}
+          DATA_SUPABASE_KEY: ${{ secrets.DATA_SUPABASE_KEY }}
+          DATA_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.DATA_SUPABASE_SERVICE_ROLE_KEY }}
+        run: node bin/jorf-bot.js statut 2>&1 | tee statut.log
+      - name: Publier le journal sur la branche logs puis supprimer ce workflow
+        if: always()
+        run: |
+          cat diagnostique.log rattrapage.log statut.log > rattrapage-complet.log 2>/dev/null || true
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin logs --depth=1 || true
+          git switch -c logs
+          git add -f rattrapage-complet.log || true
+          git commit -m "journal rattrapage-cabinets (run ${{ github.run_id }})" || true
+          git push origin logs --force
+          git switch main 2>/dev/null || git checkout main
+          git rm .github/workflows/rattrapage-once.yml
+          git commit -m "chore: suppression du workflow one-shot de rattrapage (terminé)
+
+Signed-off-by: DataParl <support@dataparl.fr>"
+          git push origin main
