@@ -202,3 +202,83 @@ export async function releverJour(date) {
   if (brut.length > 80_000_000) throw new Error(`JORF ${date} : zip trop volumineux`);
   return xmlDuZip(brut).flatMap((x) => analyserJORF(x, date));
 }
+
+// ---------------------------------------------------------------------------
+// 3. XML du dump Freemium global (famille article/) : format spécifique.
+//    Le texte parent vit dans CONTEXTE/TEXTE (attributs cid, date_publi,
+//    nature + TITRE_TXT), le contenu de l'article dans BLOC_TEXTUEL.
+//    Produit exactement les mêmes mesures qu'analyserJORF.
+// ---------------------------------------------------------------------------
+export function analyserArticleFreemium(xml) {
+  const out = [];
+  const ctx = /<CONTEXTE>[\s\S]*?<TEXTE\b([^>]*)>([\s\S]*?)<\/TEXTE>/i.exec(xml);
+  if (!ctx) return out;
+  const attrs = ctx[1];
+  const cid = / cid="([^"]+)"/i.exec(attrs)?.[1] ?? "";
+  const date = / date_publi="([^"]+)"/i.exec(attrs)?.[1] ?? "";
+  const natureBrute = / nature="([^"]+)"/i.exec(attrs)?.[1] ?? "";
+  const nature = { DECRET: "Décret", ARRETE: "Arrêté" }[natureBrute.toUpperCase()] ?? natureBrute;
+  const titre = sansBalises(/<TITRE_TXT\b[^>]*>([\s\S]*?)<\/TITRE_TXT>/i.exec(ctx[2])?.[1] ?? "");
+  if (!/(nomination|cessation de fonctions|fin de fonctions|révocation|relatif à la composition|portant cessation)/i.test(titre)) return out;
+  if (!/^(décret|arrêté)$/i.test(nature)) return out;
+  if (!date) return out;
+  const id = cid || `${date}-0`;
+  const sm = /<SM\b[^>]*>([\s\S]*?)<\/SM>/i.exec(xml)?.[1] ?? "";
+  const bloc = /<BLOC_TEXTUEL\b[^>]*>([\s\S]*?)<\/BLOC_TEXTUEL>/i.exec(xml);
+  const contenu = sansBalises(bloc?.[1] ?? "");
+  const texte = `${titre}. ${contenu}`;
+  const type = /(cessation de fonctions|fin de fonctions|révocation|cessation)/i.test(titre) ? "cessation" : "nomination";
+  const personnes = personnesDuTexte(sm);
+  for (const p of personnes) {
+    const autour = (() => {
+      const m = nomApostrophe(p.prenom, p.nom).exec(texte);
+      if (!m) return texte.slice(0, 400);
+      return texte.slice(Math.max(0, m.index - 260), Math.min(texte.length, m.index + 420));
+    })();
+    const rMinistre = /(ministre d[e']\s?[ÉEa-zéèêàâ\s,'-]{3,80}|ministre chargé[e]? de[^,.;]{3,80}|Premier ministre|secrétaire d[ée]?tat [àa][^,.;]{3,60})/i.exec(autour);
+    const rCabinet = FONCTIONS_CABINET.map((f) => new RegExp(f, "i").exec(autour)).find(Boolean);
+    const role = rCabinet && !/ministre\s/i.test(autour.slice(0, 40)) ? "cabinet" : rMinistre ? "ministre" : rCabinet ? "cabinet" : "ministre";
+    const ministre = (() => {
+      if (role !== "cabinet") return null;
+      const m = /(?:auprès|chez|cabinet)\s+d[e']?\s*(?:M\.|Mme|Madame|Monsieur)\s+([A-ZÉÈ][\p{L}'’-]+)\s+([A-ZÉÈ][\p{L}'’-]+(?:\s+[A-ZÉÈ][\p{L}'’-]+)?)/u.exec(autour);
+      if (m) {
+        const nom = m[1] === m[1].toUpperCase() ? m[1] : m[2];
+        const prenom = m[1] === m[1].toUpperCase() ? m[2] : m[1];
+        return { prenom, nom };
+      }
+      return null;
+    })();
+    out.push({
+      id_texte: id, date, nature, titre, type, role,
+      civilite: p.civilite, prenom: p.prenom, nom: p.nom,
+      fonction: (rCabinet?.[0] ?? rMinistre?.[0] ?? "").trim(),
+      portefeuille: role === "ministre" ? (rMinistre?.[0] ?? "").replace(/^ministre\s*/i, "").trim() : "",
+      ministre,
+      extrait: autour.replace(/\s+/g, " ").slice(0, 400),
+    });
+  }
+  if (!personnes.length) {
+    for (const m of texte.matchAll(/(?:M\.|Mme)\s+([A-ZÉÈ][\p{L}'’-]+)\s+([A-ZÉÈ][\p{L}'’-]+(?:\s+[A-ZÉÈ][\p{L}'’-]+){0,2})/gu)) {
+      const autour = texte.slice(Math.max(0, m.index - 100), m.index + 320);
+      if (!/(cabinet|ministre|secrétaire d[ée]?tat)/i.test(autour)) continue;
+      out.push({
+        id_texte: id, date, nature, titre,
+        type: /(cessation|révocation|fin de fonctions)/i.test(titre) ? "cessation" : "nomination",
+        role: /cabinet|conseiller/i.test(autour) && !/ministre\s/i.test(autour.slice(0, 40)) ? "cabinet" : "ministre",
+        civilite: m[0].startsWith("Mme") ? "Mme" : "M.",
+        prenom: m[1], nom: m[2],
+        fonction: FONCTIONS_CABINET.map((f) => new RegExp(f, "i").exec(autour)).find(Boolean)?.[0] ?? (/ministre/i.test(autour) ? "ministre" : ""),
+        portefeuille: (/(ministre d[e']?\s?[a-zéèêàâ\s,'-]{3,80})/i.exec(autour)?.[0] ?? "").replace(/^ministre\s*/i, "").trim(),
+        ministre: null,
+        extrait: autour,
+      });
+    }
+  }
+  const vus = new Set();
+  return out.filter((m) => {
+    const k = `${m.id_texte}|${cleNom(m.prenom, m.nom)}|${m.type}|${m.role}`;
+    if (vus.has(k)) return false;
+    vus.add(k);
+    return true;
+  });
+}
