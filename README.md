@@ -23,7 +23,7 @@ upsert — jamais de doublons, quel que soit l'outil qui balaye le jour.
 ## Utilisation
 
 ```bash
-export DATA_SUPABASE_URL=…            # https://yuhqajnizwmenmyzms.supabase.co
+export DATA_SUPABASE_URL=…            # https://yuhqajaznizwmenmyzms.supabase.co
 export DATA_SUPABASE_KEY=…            # clé publishable
 export DATA_SUPABASE_SERVICE_ROLE_KEY=…
 
@@ -91,26 +91,35 @@ https://echanges.dila.gouv.fr/OPENDATA/JORF/ — le fonds complet en XML,
 structure « SARDE » : dossiers par base (`jorf/`, `legi/`, …), fichiers XML nommés
 par identifiant de texte. Téléchargeable uniquement depuis une IP résidentielle.
 
-```bash
-# 1. Télécharger (Mac, IP maison) puis extraire (≈ 10 Go) :
-curl -O https://echanges.dila.gouv.fr/OPENDATA/JORF/Freemium_jorf_global_XXXX-140000.tar.gz
-tar -xzf Freemium_jorf_global_XXXX-140000.tar.gz
-find . -type d -iname jorf   # repérer le dossier du fonds JORF
+**Pas besoin d'extraire l'archive** : la commande `corpus` lit le `.tar.gz` en
+streaming (aucune écriture disque supplémentaire — utile quand l'espace disque
+est limité). Une extraction (~10 Go) reste possible, `corpus` accepte aussi un
+dossier.
 
-# 2. Import 2012 → date du dump (idempotent, upsert) :
-node bin/jorf-bot.js corpus <dossier-jorf> 2012-01-01 <date-du-dump>
+```bash
+# 1. Télécharger (Mac, IP maison) :
+curl -O https://echanges.dila.gouv.fr/OPENDATA/JORF/Freemium_jorf_global_XXXX-140000.tar.gz
+
+# 2. Import 2012 → date du dump, directement sur l'archive (idempotent, upsert) :
+node bin/jorf-bot.js corpus Freemium_jorf_global_XXXX-140000.tar.gz 2012-01-01 <date-du-dump>
 
 # 3. Compléter jusqu'à aujourd'hui avec la fenêtre JORFSIMPLE :
 node bin/jorf-bot.js balayer <lendemain-du-dump> $(date -d hier +%F)
+
+# 4. Rapprocher les cabinets avec les collaborateurs parlementaires connus :
+psql "$DATA_SUPABASE_URL" -f scripts/rapprochements.sql   # ou via l'admin Supabase
 ```
 
-La commande `corpus` parcourt les XML (rejet rapide sur le titre, puis mêmes
-filtres que le balayage quotidien), regroupe les mesures par date et les importe
-avec les rapprochements habituels (parlementaires, collaborateurs, ministre de
-rattachement). Si un trou subsiste entre la date du dump et le début de la
-fenêtre JORFSIMPLE (rafaîchissement du Freemium irrégulier), le combler via
-Légifrance. Ensuite, la mise à jour quotidienne = `veille` (Mac ou conteneur
-Home Assistant).
+La commande `corpus` alimente **uniquement `cabinets_ministeriels`** (les ministres
+2012-2026 sont déjà en base, validés ; le corpus ne réécrit pas `ministres`). Elle
+parcourt les XML (rejet rapide sur le titre, puis mêmes filtres que le balayage
+quotidien), regroupe les mesures par date, rattache chaque collaborateur au
+ministre en fonction ce jour-là et importe par upsert. Les rapprochements
+`collab_id`/`personne_id` se font ensuite en une passe via
+`scripts/rapprochements.sql`. Si un trou subsiste entre la date du dump et le
+début de la fenêtre JORFSIMPLE (rafaîchissement du Freemium irrégulier), le
+combler via Légifrance. Ensuite, la mise à jour quotidienne = `veille` (Mac ou
+conteneur Home Assistant).
 
 ## Sources
 
