@@ -30,7 +30,7 @@ export DATA_SUPABASE_SERVICE_ROLE_KEY=…
 node bin/jorf-bot.js diagnostique      # index DILA, zip de la veille, accès Supabase
 node bin/jorf-bot.js statut            # où en est le balayage ?
 node bin/jorf-bot.js jour 2026-10-03   # un jour précis
-node bin/jorf-bot.js veille            # hier + avant-hier
+node bin/jorf-bot.js veille            # 5 derniers jours (auto-rattrapage)
 node bin/jorf-bot.js balayer 2024-01-01 2024-06-30
 node bin/jorf-bot.js rattraper         # reprise depuis la fenêtre la plus ancienne
 ```
@@ -67,6 +67,7 @@ docker run -d --name jorf --restart unless-stopped \
   -e DATA_SUPABASE_URL=https://yuhqajaznizwmenmyzms.supabase.co \
   -e DATA_SUPABASE_KEY=<clé publishable> \
   -e DATA_SUPABASE_SERVICE_ROLE_KEY=<clé service_role> \
+  -e BETTERSTACK_HEARTBEAT_URL=<url-du-monitor-heartbeat> \
   node:20-alpine sleep infinity
 
 # 2. Backfill initial (fenêtre JORFSIMPLE ≈ 10 mois) — dans le conteneur :
@@ -79,6 +80,14 @@ docker exec jorf node bin/jorf-bot.js veille
 
 Le cron peut être assuré par un `crontab` dans le conteneur, par le planificateur
 de la box, ou par une automatisation Home Assistant appelant le `docker exec`.
+
+`veille` balaye les **5 derniers jours** en sautant ceux déjà traités (`jorf_releves`,
+upsert idempotent) : une matinée manquée (box redémarrée, cron silencieux) est
+rattrapée automatiquement aux passages suivants, sans jamais réécrire un jour déjà
+importé. Si `BETTERSTACK_HEARTBEAT_URL` est définie, un ping Better Stack (monitor
+de type *heartbeat*, période ≤ 24 h) n'est envoyé que lorsque la veille est
+complète — hier balayé. Une matinée ratée déclenche donc l'alerte au lieu de passer
+inaperçue, et le run se termine en échec (code 1) tant que hier n'est pas balayé.
 Limite connue : JORFSIMPLE ne conserve qu'environ dix mois de dumps ; pour les
 jours antérieurs (début du gouvernement courant), passer par Légifrance.
 

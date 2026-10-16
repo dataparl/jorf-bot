@@ -3,13 +3,13 @@
 // Exemples :
 //   node bin/jorf-bot.js statut
 //   node bin/jorf-bot.js jour 2026-10-03
-//   node bin/jorf-bot.js veille              (hier + avant-hier, comme le cron)
+//   node bin/jorf-bot.js veille              (5 derniers jours, comme le cron)
 //   node bin/jorf-bot.js rattraper           (2017-01-01 → hier)
 //   node bin/jorf-bot.js balayer 2024-01-01 2024-06-30
 //   node bin/jorf-bot.js balayer 2025-07-14 --forcer   (rattrapage complet, même les jours déjà balayés)
 //   node bin/jorf-bot.js corpus Freemium_jorf_global_20250713-140000.tar.gz 2012-01-01 2025-07-13
 
-import { balayer, importerJour, statut } from "../src/import.js";
+import { balayer, importerJour, joursBalayes, statut } from "../src/import.js";
 import { importerCorpus } from "../src/corpus.js";
 import { fenetreJorfsimple, releverJour } from "../src/jorf.js";
 import { ecrire, lire, lirePrive, supprimer } from "../src/supabase.js";
@@ -17,6 +17,21 @@ import { verifierEnv } from "../src/supabase.js";
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 const aujourdhui = (offset = 0) => new Date(Date.now() - offset * 86_400_000).toISOString().slice(0, 10);
+
+// Fenêtre du cron quotidien (veille) : les N derniers jours. Les jours déjà
+// balayés (présents dans jorf_releves) sont sautés, seuls les manquants sont
+// importés — une matinée de cron manquée (box redémarrée, réseau coupé) est
+// donc rattrapée automatiquement aux passages suivants.
+const FENETRE_VEILLE = 5;
+
+// Battement de cœur Better Stack : prévenir que le balayage du matin a bien eu
+// lieu. URL fournie par BETTERSTACK_HEARTBEAT_URL (monitor de type heartbeat à
+// créer côté Better Stack) ; silencieux si la variable est absente. Un échec du
+// ping n'invalide pas le balayage lui-même (il a réussi).
+async function battement(url) {
+  try { await fetch(url); console.log("Heartbeat Better Stack : OK"); }
+  catch (e) { console.log(`Heartbeat Better Stack : ÉCHEC — ${e.message}`); }
+}
 
 const [commande, ...args] = process.argv.slice(2);
 
@@ -81,9 +96,21 @@ async function main() {
       break;
     }
     case "veille": {
-      for (const d of [aujourdhui(2), aujourdhui(1)]) {
-        const j = await importerJour(d).catch((e) => ({ date: d, erreurs: [e.message] }));
-        console.log(`${j.date} : ${j.nb ?? 0} mesure(s) — ${j.ministres ?? 0} ministre(s), ${j.cabinets ?? 0} cabinet(s)${j.erreurs?.length ? ` — ${j.erreurs[0]}` : ""}`);
+      // Balayage auto-correctif : les 5 derniers jours, en sautant ceux déjà
+      // traités (jorf_releves). Un jour manqué (cron silencieux, box éteinte)
+      // est repris au passage suivant — jamais de trou dans la base.
+      const hier = aujourdhui(1);
+      const r = await balayer(aujourdhui(FENETRE_VEILLE), hier);
+      console.log(`${r.jours.length} jour(s) traité(s), ${r.enErreur ?? 0} en erreur.`);
+      // Le battement de cœur n'est envoyé que si hier est bien balayé : si le
+      // dump n'était pas encore publié, le run est « incomplet » (code 1) et
+      // Better Stack alerte au lieu de valider une matinée ratée.
+      const vus = await joursBalayes().catch(() => null);
+      if (!vus || !vus.has(hier)) {
+        console.error(`Veille incomplète : ${hier} reste à balayer (dump DILA pas encore publié ?)`);
+        process.exitCode = 1;
+      } else if (process.env.BETTERSTACK_HEARTBEAT_URL) {
+        await battement(process.env.BETTERSTACK_HEARTBEAT_URL);
       }
       break;
     }
